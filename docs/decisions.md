@@ -29,6 +29,10 @@ Deepgram Nova-3 is the first `SpeechToText` implementation because its WebSocket
 
 FreeSWITCH starts `mod_audio_stream` only after a UUID listen window is persisted and closes it before classification. The worker authenticates both audio upgrades and API requests, checks the current window, buffers at most two seconds while connecting, and uses one stable utterance receipt across HTTP retries. One completed utterance closes the window, preventing duplicate or late transcripts from advancing another turn. Worker and API share the root lockfile and compiler, with separate Dockerfiles/processes, to avoid dependency drift. Simulator workers expose health with streaming disabled and need no provider key.
 
+The A1 robustness review separates active audio from pending receipt delivery because the API may close media or start its next listen before its previous HTTP response arrives. Five active windows remain the ceiling; a separate bound of 25 total reservations prevents stalled receipts from accumulating indefinitely. Opening and API operations each have a three-second deadline, and cancellation closes late provider streams without replaying their buffered audio.
+
+STT latency uses the final recognized word's timestamp mapped to the first PCM arrival because silence continues producing audio frames after speech ends. Missing or inconsistent provider timing is omitted; the resulting estimate includes endpointing and transport and is not precise provider compute latency, consistent with [Deepgram's latency guidance](https://developers.deepgram.com/docs/measuring-streaming-latency).
+
 ## Time limits (A3)
 
 Listen windows default to 6000 ms and use the explicit fallback on silence. Retry nodes default to one attempt, require an explicit counter when they can reach a listen, and end the call on exhaustion unless an exhaustion fallback is supplied. Both provider-owned originate/answer timers and API deadlines enforce 30-second answer and 180-second answered-call limits, so ESL/API disruption cannot leave an indefinitely parked call. Invalid capacity (outside 1–5) and timeout environment values fail startup instead of weakening the guards.

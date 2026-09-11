@@ -1,10 +1,10 @@
-export type Utterance = { transcript: string; latencyMs: number };
+export type Utterance = { transcript: string; latencyMs?: number };
 export type SpeechCallbacks = { onUtterance: (utterance: Utterance) => void; onError: (error: Error) => void };
 export interface SpeechStream {
-  write(pcm: Buffer): void;
+  write(pcm: Buffer, receivedAt?: number): void;
   close(): void;
 }
 export interface SpeechToText {
   readonly provider: string;
-  open(callbacks: SpeechCallbacks): Promise<SpeechStream>;
+  open(callbacks: SpeechCallbacks, signal?: AbortSignal): Promise<SpeechStream>;
 }
