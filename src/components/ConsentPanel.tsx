@@ -68,6 +68,8 @@ export function ConsentPanel({ dncEnabled, onChanged }: { dncEnabled: boolean; o
     });
   };
 
+  const verifiedPermission = permission?.allowed && (permission.basis === "consent" || permission.basis === "dnc" && permission.dnc?.evidence && !permission.dnc.evidence.noVoiceCall);
+  const unverified = permission?.allowed && !verifiedPermission;
   return <section className="campaign-card consent-panel" aria-labelledby="consent-heading">
     <h2 id="consent-heading"><ShieldCheck size={18} /> Voice call permission</h2>
     <p>Each number needs recorded permission before a voice call. Registry checks can record Singapore results automatically; keep using the forms below for consent, opt-outs and results obtained elsewhere.</p>
@@ -92,9 +94,9 @@ export function ConsentPanel({ dncEnabled, onChanged }: { dncEnabled: boolean; o
     </form>
     {error && <p className="campaign-message campaign-message--error" role="alert">{error}</p>}
     {notice && <p className="campaign-message" role="status">{notice}</p>}
-    {permission && <div className={`consent-result${permission.allowed ? "" : " consent-result--blocked"}`} role="status">
-      <strong>{permission.phone}: {permission.allowed ? "Permitted by recorded evidence" : "Blocked from marketing voice calls"}</strong>
-      <p>{permission.allowed ? permission.basis === "consent" ? "Permission basis: recorded voice marketing consent." : "Permission basis: current DNC Registry clearance." : `Skip reason: ${permission.skipReason ?? "No current permission evidence."}`}</p>
+    {permission && <div className={`consent-result${verifiedPermission ? "" : " consent-result--blocked"}`} role="status">
+      <strong>{permission.phone}: {verifiedPermission ? "Permitted by recorded evidence" : unverified ? "Permission unverified" : "Blocked from marketing voice calls"}</strong>
+      <p>{unverified ? "Manual DNC evidence is recorded, but no Registry verdict is available. Review the evidence before calling." : verifiedPermission ? permission.basis === "consent" ? "Permission basis: recorded voice marketing consent." : "Permission basis: current DNC Registry clearance." : `Skip reason: ${permission.skipReason ?? "No current permission evidence."}`}</p>
       {permission.consent && <p>Consent evidence: {permission.consent.source}<br />{permission.consent.revokedAt ? `Opt-out recorded: ${singaporeDate(permission.consent.revokedAt)}` : `Consent given: ${singaporeDate(permission.consent.consentedAt)}`} Singapore time.</p>}
       {permission.dnc && <p>DNC result: {permission.dnc.cleared ? "clear" : "listed"} · {permission.dnc.reference}<br />Checked: {singaporeDate(permission.dnc.checkedAt)} Singapore time.</p>}
     </div>}

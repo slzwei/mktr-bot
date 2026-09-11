@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bot,
+  ChevronDown,
   CircleStop,
   Clock3,
   LoaderCircle,
@@ -9,17 +9,22 @@ import {
   RadioTower,
   Route,
   Sparkles,
-  Volume2
+  Volume2,
+  X
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
-import type { CallEvent, CallSession, CallerId, FlowDefinition, TrunkStatus } from "../lib/domain";
+import type { CallEvent, CallSession, CallSummary, CallerId, FlowDefinition, TrunkStatus } from "../lib/domain";
 import { formatPhoneNumber } from "../lib/domain";
+import { singaporeTime } from "../lib/operator-display";
+import { CallReview } from "./CallReview";
+import { LoadError } from "./OperatorUI";
 
 type Props = {
   open: boolean;
   flows: FlowDefinition[];
   trunk: TrunkStatus;
   activeCall?: CallSession;
+  historyCall?: CallSummary;
   onClose: () => void;
   onStarted: (call: CallSession) => void;
   onUpdated: (call: CallSession) => void;
@@ -37,9 +42,9 @@ const eventIcon = (type: CallEvent["type"]) => {
   return Clock3;
 };
 
-const timestamp = (value: string) => new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const timestamp = singaporeTime;
 
-export function CallConsole({ open, flows, trunk, activeCall, onClose, onStarted, onUpdated }: Props) {
+export function CallConsole({ open, flows, trunk, activeCall, historyCall, onClose, onStarted, onUpdated }: Props) {
   const publishedFlows = useMemo(() => flows.filter((flow) => flow.status === "published"), [flows]);
   const [destination, setDestination] = useState("+6591234567");
   const [callerId, setCallerId] = useState<CallerId>(trunk.callerIds[0]);
@@ -48,15 +53,42 @@ export function CallConsole({ open, flows, trunk, activeCall, onClose, onStarted
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
-  const isActiveCall = Boolean(activeCall && active.has(activeCall.status));
+  const [detail, setDetail] = useState<Awaited<ReturnType<typeof api.call>>>();
+  const [detailFailure, setDetailFailure] = useState<{ id: string; error: string }>();
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailRevision, setDetailRevision] = useState(0);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const selectedId = historyCall?.id ?? activeCall?.id;
+  const currentCall = activeCall?.id === selectedId ? activeCall : detail?.id === selectedId ? detail : undefined;
+  const isActiveCall = Boolean(currentCall ? active.has(currentCall.status) : historyCall && active.has(historyCall.status));
+  const reviewing = Boolean(historyCall || currentCall && !isActiveCall);
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButton.current?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !selectedId || !reviewing) return;
+    let disposed = false;
+    setDetailLoading(true); setDetailFailure(undefined);
+    void api.call(selectedId).then((call) => {
+      if (!disposed) { setDetail(call); onUpdated(call); }
+    }).catch((failure) => {
+      if (!disposed) setDetailFailure({ id: selectedId, error: failure instanceof Error ? failure.message : "The conversation could not be retrieved." });
+    }).finally(() => { if (!disposed) setDetailLoading(false); });
+    return () => { disposed = true; };
+  }, [selectedId, isActiveCall, open, reviewing, detailRevision, onUpdated]);
 
   useEffect(() => {
     if (!flowId && publishedFlows[0]) setFlowId(publishedFlows[0].id);
   }, [flowId, publishedFlows]);
 
   useEffect(() => {
-    if (!activeCall || !isActiveCall) return;
-    const callId = activeCall.id;
+    if (!currentCall || !isActiveCall) return;
+    const callId = currentCall.id;
     let disposed = false;
     let resyncing = false;
     let events: EventSource | undefined;
@@ -93,7 +125,7 @@ export function CallConsole({ open, flows, trunk, activeCall, onClose, onStarted
     setStreamState("connecting");
     connect();
     return () => { disposed = true; clearTimeout(retry); events?.close(); };
-  }, [activeCall?.id, isActiveCall, onUpdated]);
+  }, [currentCall?.id, isActiveCall, onUpdated]);
 
   const start = async () => {
     setError("");
@@ -109,29 +141,39 @@ export function CallConsole({ open, flows, trunk, activeCall, onClose, onStarted
   };
 
   const stop = async () => {
-    if (!activeCall) return;
+    if (!currentCall) return;
     setError("");
     try {
-      onUpdated(await api.stopCall(activeCall.id));
+      onUpdated(await api.stopCall(currentCall.id));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not end the call.");
     }
   };
 
   if (!open) return null;
-  const isLive = Boolean(activeCall && active.has(activeCall.status));
+  const isLive = isActiveCall;
+  const detailError = detailFailure && detailFailure.id === selectedId ? detailFailure.error : "";
+  const loadingReview = reviewing && (detailLoading || detail?.id !== selectedId) && !detailError;
+  const eventTimeline = currentCall && <div className="event-log">
+    <div className="event-log__title"><span>{isLive ? "Live event timeline" : "Event timeline"}</span><small>{currentCall.events.length} events · SGT</small></div>
+    {currentCall.events.slice().reverse().map((event) => {
+      const Icon = eventIcon(event.type);
+      return <div className="event-row" key={event.id}><span className={`event-row__icon event-row__icon--${event.type}`}><Icon size={14} /></span><div><strong>{event.title}</strong>{event.detail && <small>{event.detail}</small>}</div><time dateTime={event.timestamp}>{event.latencyMs !== undefined ? `${event.latencyMs}ms` : timestamp(event.timestamp)}</time></div>;
+    })}
+    {currentCall.events.length === 0 && <p className="secondary-text">No technical events recorded.</p>}
+  </div>;
 
   return (
-    <aside className="call-console" aria-label="Test call console">
+    <aside className={`call-console${reviewing ? " call-console--history" : ""}`} aria-label={reviewing && !isLive ? "Call details" : "Test call console"} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
       <div className="call-console__header">
         <div>
-          <span className="eyebrow"><Bot size={14} /> Test call</span>
-          <h2>{isLive ? "Call in progress" : "Run a flow"}</h2>
+          <span className="eyebrow">{reviewing && !isLive ? "Call record" : "Test call"}</span>
+          <h2>{isLive ? "Call in progress" : reviewing ? "Call details" : "Run a flow"}</h2>
         </div>
-        <button className="icon-button" onClick={onClose} title="Close call console" aria-label="Close call console">×</button>
+        <button ref={closeButton} className="icon-button" onClick={onClose} title="Close call console" aria-label="Close call console"><X size={20} /></button>
       </div>
 
-      {!isLive && (
+      {!isLive && !reviewing && (
         <div className="call-form">
           <label className="field-label">
             Destination
@@ -170,49 +212,44 @@ export function CallConsole({ open, flows, trunk, activeCall, onClose, onStarted
         </div>
       )}
 
-      {activeCall && (
+      {reviewing && detailError && <LoadError title="Could not load this call" error={detailError} onRetry={() => setDetailRevision((value) => value + 1)} />}
+      {loadingReview && <div className="call-review-skeleton" role="status" aria-label="Loading call details"><span className="skeleton-line" /><span className="skeleton-line skeleton-line--short" /><div className="skeleton-facts" />{[0, 1, 2].map((index) => <div className="skeleton-turn" key={index}><span className="skeleton-line skeleton-line--short" /><span className="skeleton-line" /><span className="skeleton-line" /></div>)}</div>}
+      {reviewing && !isLive && !loadingReview && !detailError && currentCall && detail && detail.id === selectedId && <>
+        <CallReview call={currentCall} transcript={detail.transcript} summary={historyCall} flows={flows} />
+        <details className="technical-events" key={selectedId}><summary><ChevronDown size={16} /> Technical events <small>{currentCall.events.length} events</small></summary><p>Raw call events for troubleshooting. Newest first, in Singapore time.</p>{eventTimeline}</details>
+      </>}
+
+      {currentCall && isLive && (
         <div className="call-live">
           <div className="call-live__summary">
-            <div className={`status-orb status-orb--${activeCall.status}`} />
+            <div className={`status-orb status-orb--${currentCall.status}`} />
             <div>
-              <strong>{activeCall.status.replace("_", " ")}</strong>
-              <span>{activeCall.destination}</span>
+              <strong>{currentCall.status.replace("_", " ")}</strong>
+              <span>{currentCall.destination}</span>
             </div>
             {isLive && <button className="stop-button" onClick={stop}><CircleStop size={15} /> End</button>}
           </div>
           <div className="call-route">
-            <span>{formatPhoneNumber(activeCall.callerId)}</span>
+            <span>{formatPhoneNumber(currentCall.callerId)}</span>
             <Route size={13} />
-            <span>{activeCall.destination}</span>
+            <span>{currentCall.destination}</span>
           </div>
-          {activeCall.classifierResult && (
+          {currentCall.classifierResult && (
             <div className="classification-result">
               <span>AI decision</span>
-              <strong>{activeCall.classifierResult.intent}</strong>
-              <small>{activeCall.classifierResult.sentiment} · {Math.round(activeCall.classifierResult.confidence * 100)}% confidence</small>
+              <strong>{currentCall.classifierResult.intent}</strong>
+              <small>{currentCall.classifierResult.sentiment} · {Math.round(currentCall.classifierResult.confidence * 100)}% confidence</small>
             </div>
           )}
-          <div className="event-log">
-            <div className="event-log__title"><span>Live event timeline</span><small>{activeCall.events.length} events</small></div>
-            {activeCall.events.slice().reverse().map((event) => {
-              const Icon = eventIcon(event.type);
-              return (
-                <div className="event-row" key={event.id}>
-                  <span className={`event-row__icon event-row__icon--${event.type}`}><Icon size={14} /></span>
-                  <div><strong>{event.title}</strong>{event.detail && <small>{event.detail}</small>}</div>
-                  <time>{event.latencyMs ? `${event.latencyMs}ms` : timestamp(event.timestamp)}</time>
-                </div>
-              );
-            })}
-          </div>
+          {eventTimeline}
         </div>
       )}
 
       {error && <p className="form-error">{error}</p>}
       {isLive && streamState !== "connected" && <p className="console-footnote" role="status">{streamState === "connecting" ? "Connecting to call updates…" : "Reconnecting to call updates…"}</p>}
-      <div className="console-footnote">
+      {(!reviewing || isLive) && <div className="console-footnote">
         {trunk.mode === "simulated" ? "Safe simulator: no SIP INVITE is sent." : "Live FreeSWITCH gateway: SIP originations enabled."}
-      </div>
+      </div>}
     </aside>
   );
 }

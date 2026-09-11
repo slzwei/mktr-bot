@@ -96,9 +96,10 @@ export function CampaignsPanel({ flows, canManageWebhooks = false }: { flows: Fl
   });
   const control = (action: "start" | "pause" | "stop") => active && run(async () => { await api.controlCampaign(active.id, action); await refresh(); });
   const activePermissions = active?.contacts.map((entry) => permissions[entry.contact.phone]);
+  const verifiedDialable = (entry?: ContactPermission) => ["clear", "expiring"].includes(permissionDisplay(entry).tone);
   const blockedReasons = new Map<string, number>();
-  activePermissions?.filter((entry) => !entry?.dialable).forEach((entry) => {
-    const reason = entry?.skipReason ?? "Permission status unavailable.";
+  activePermissions?.filter((entry) => !verifiedDialable(entry)).forEach((entry) => {
+    const reason = entry?.skipReason ?? permissionDisplay(entry).detail ?? "Permission status unavailable.";
     blockedReasons.set(reason, (blockedReasons.get(reason) ?? 0) + 1);
   });
   return <div className="campaigns-view">
@@ -146,7 +147,7 @@ export function CampaignsPanel({ flows, canManageWebhooks = false }: { flows: Fl
       <div className="campaign-progress-header"><div><h2>Live progress</h2><label>Campaign<select value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Select a campaign</option>{campaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label></div>{active && <div className="campaign-controls"><button className="primary-button" disabled={busy || !["draft", "paused"].includes(active.status)} onClick={() => control("start")}><Play size={15} /> Start campaign</button><button className="secondary-button" disabled={busy || active.status !== "running"} onClick={() => control("pause")}><Pause size={15} /> Pause campaign</button><button className="secondary-button" disabled={busy || ["stopped", "completed"].includes(active.status)} onClick={() => control("stop")}><Square size={15} /> Stop campaign</button></div>}</div>
       {!active ? <p>No campaign selected.</p> : <>
         <p><strong data-testid="campaign-status">{active.status}</strong> · Published flow v{active.flowVersion} · Caller ID {active.callerId}</p>
-        <p data-testid="campaign-compliance">Permission now: {active.contacts.length} total contacts; {activePermissions?.filter((entry) => entry?.dialable).length ?? 0} dialable; {activePermissions?.filter((entry) => !entry?.dialable).length ?? 0} blocked.{blockedReasons.size > 0 && ` ${[...blockedReasons].map(([reason, count]) => `${count}: ${reason}`).join(" ")}`}</p>
+        <p data-testid="campaign-compliance">Permission now: {active.contacts.length} total contacts; {activePermissions?.filter(verifiedDialable).length ?? 0} dialable; {activePermissions?.filter((entry) => !verifiedDialable(entry)).length ?? 0} blocked.{blockedReasons.size > 0 && ` ${[...blockedReasons].map(([reason, count]) => `${count}: ${reason}`).join(" ")}`}</p>
         <p>{active.callingHours.days.map((day) => dayNames[day]).join(", ")} {active.callingHours.start}–{active.callingHours.end} Singapore time · Up to {active.maxAttempts} attempts · Busy and no-answer retry after {active.retryDelaySeconds}s.</p>
         {active.status === "running" && !active.withinCallingHours && <p role="status">Waiting for the next permitted calling window.</p>}
         {active.status === "paused" && <p>Paused. Calls already in progress continue to completion.</p>}

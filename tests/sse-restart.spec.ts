@@ -81,10 +81,15 @@ test("API restart recovers the open call console and two operators share the act
     // snapshots still active are ended through the public API, exercising the reopened stream.
     const recovered = await api(`/api/calls/${call.id}`) as CallSession;
     if (!["ended", "failed"].includes(recovered.status)) await api(`/api/calls/${call.id}/end`, "POST", {});
-    await expect(left.locator(".call-live__summary strong")).toHaveText(/^(ended|failed)$/);
+    // Terminal calls now transition to the conversation review. Assert that state
+    // and the retained conversation instead of looking for a defunct live summary.
+    const review = left.getByRole("complementary", { name: "Call details", exact: true });
+    await expect(review.getByRole("heading", { name: "Conversation", exact: true })).toBeVisible();
+    await expect(review.locator(".semantic-chip")).toHaveText(/^(Failed|Stopped)$/);
+    await expect(review.getByTestId("transcript-caller")).toContainText("Yes, I would like to hear more about that.");
     await expect(left.locator(".sidebar__trunk")).toContainText("0 of 5 calls active");
     await expect(right.locator(".sidebar__trunk")).toContainText("0 of 5 calls active");
-    await expect(left.getByRole("complementary", { name: "Test call console" })).toBeVisible();
+    await expect(review).toBeVisible();
     await expect(left.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
   } finally {
     heartbeatController.abort();

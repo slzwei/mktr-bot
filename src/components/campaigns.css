@@ -18,6 +18,8 @@
 .campaign-contacts .contact-permission { padding: 9px; border-left: 3px solid #177461; border-radius: 4px; background: #f1f8f4; }
 .campaign-contacts .contact-permission--blocked { border-left-color: #aa493b; background: #fff1ee; }
 .campaign-contacts .contact-permission--expiring { border-left-color: #9a6b10; background: #fff7df; }
+.campaign-contacts .contact-permission--unknown { border-left-color: var(--muted); background: var(--unknown-soft); }
+.campaign-contacts .contact-permission:focus-within { outline: 2px solid var(--teal); outline-offset: 2px; }
 .permission-state { display: block; margin-top: 4px; font-size: 12px; }
 .contact-permission--blocked .permission-state { color: #953f36; }
 .contact-permission--expiring .permission-state { color: #79530b; }

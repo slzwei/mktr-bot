@@ -5,7 +5,6 @@ import {
   Bot,
   ChevronDown,
   CircleHelp,
-  Cloud,
   FileClock,
   GitBranch,
   LoaderCircle,
@@ -26,17 +25,21 @@ import { FlowCanvas } from "./components/FlowCanvas";
 import { TrunkPanel } from "./components/TrunkPanel";
 import { SessionGate } from "./components/SignIn";
 import { CampaignsPanel } from "./components/CampaignsPanel";
+import { PermissionsPanel } from "./components/PermissionsPanel";
+import { CallHistoryPanel } from "./components/CallHistoryPanel";
 import { EventLogsView, HelpView, SettingsView } from "./components/SystemViews";
 import { api, ApiError, type Operator } from "./lib/api";
-import type { BootstrapData, CallSession, Clip, FlowDefinition } from "./lib/domain";
+import type { BootstrapData, CallSession, CallSummary, Clip, FlowDefinition } from "./lib/domain";
+import { isCallInProgress } from "./lib/operator-display";
 
-type View = "flows" | "clips" | "calls" | "trunk" | "campaigns" | "events" | "settings" | "help";
+type View = "flows" | "clips" | "calls" | "permissions" | "trunk" | "campaigns" | "events" | "settings" | "help";
 
 const navigation: { id: View; label: string; icon: typeof GitBranch }[] = [
   { id: "flows", label: "Flows", icon: GitBranch },
   { id: "clips", label: "Audio clips", icon: AudioLines },
   { id: "calls", label: "Call history", icon: FileClock },
   { id: "campaigns", label: "Campaigns", icon: PhoneCall },
+  { id: "permissions", label: "Contact permissions", icon: ShieldCheck },
   { id: "trunk", label: "SIP trunk", icon: RadioTower }
 ];
 
@@ -48,6 +51,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [callOpen, setCallOpen] = useState(false);
   const [activeCall, setActiveCall] = useState<CallSession>();
+  const [historyCall, setHistoryCall] = useState<CallSummary>();
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string }>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -191,13 +195,18 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
   };
 
   const calls = useMemo(() => data?.calls ?? [], [data?.calls]);
+  const openTestCall = () => {
+    setHistoryCall(undefined);
+    setActiveCall((current) => current && isCallInProgress(current.status) ? current : undefined);
+    setCallOpen(true);
+  };
 
   if (!data) {
     return <main className="loading-screen"><span className="brand-mark"><Bot size={22} /></span><LoaderCircle className="spin" size={22} /><strong>Loading voice control</strong></main>;
   }
 
   return (
-    <div className={`app-shell ${callOpen ? "has-call-console" : ""}`}>
+    <div className={`app-shell ${callOpen ? "has-call-console" : ""} ${callOpen && (historyCall || activeCall && !isCallInProgress(activeCall.status)) ? "has-call-detail" : ""}`}>
       <header className="topbar">
         <div className="topbar__brand">
           <button className="mobile-menu" onClick={() => setSidebarOpen((open) => !open)} aria-label="Toggle navigation"><Menu size={19} /></button>
@@ -217,7 +226,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
           <span className="nav-label">Workspace</span>
           {navigation.map((item) => {
             const Icon = item.icon;
-            return <button key={item.id} className={view === item.id ? "is-active" : ""} onClick={() => { setView(item.id); setSidebarOpen(false); }}><Icon size={17} /> {item.label}</button>;
+            return <button key={item.id} aria-current={view === item.id ? "page" : undefined} className={view === item.id ? "is-active" : ""} onClick={() => { setView(item.id); setSidebarOpen(false); }}><Icon size={17} /> {item.label}</button>;
           })}
           <span className="nav-label nav-label--lower">System</span>
           <button className={view === "events" ? "is-active" : ""} onClick={() => { setView("events"); setSidebarOpen(false); }}><Activity size={17} /> Event logs</button>
@@ -249,7 +258,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
                 <button className="secondary-button" onClick={createFlow} disabled={saving}><Plus size={15} /> New flow</button>
                 <button className="secondary-button" onClick={save} disabled={saving}>{saving ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} Save</button>
                 <button className="secondary-button" onClick={publish} disabled={saving}><Upload size={15} /> Publish</button>
-                <button className="primary-button" onClick={() => setCallOpen(true)}><Play size={15} fill="currentColor" /> Test call</button>
+                <button className="primary-button" onClick={openTestCall}><Play size={15} fill="currentColor" /> Test call</button>
               </div>
             </div>
             <FlowCanvas key={workingFlow.id} flow={workingFlow} clips={data.clips} selectedNodeId={selectedNodeId} onSelectedNodeChange={setSelectedNodeId} onChange={(flow) => setWorkingFlow({ ...flow, status: "draft" })} />
@@ -261,28 +270,14 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
         {view === "clips" && <ClipLibrary clips={data.clips} onCreated={onClipCreated} onRemoved={onClipRemoved} />}
         {view === "trunk" && <TrunkPanel trunk={data.trunk} />}
         {view === "campaigns" && <CampaignsPanel flows={data.flows} canManageWebhooks={operator.role === "admin"} />}
+        {view === "permissions" && <PermissionsPanel onManage={() => setView("campaigns")} />}
         {view === "events" && <EventLogsView calls={calls} />}
         {view === "settings" && <SettingsView />}
         {view === "help" && <HelpView />}
-        {view === "calls" && (
-          <div className="history-view">
-            <section className="library-header"><div><span className="eyebrow"><FileClock size={14} /> Call history</span><h1>Test call sessions</h1><p>Review call outcomes, selected branches, and measured decision latency.</p></div><button className="primary-button" onClick={() => setCallOpen(true)}><PhoneCall size={16} /> New test call</button></section>
-            <section className="history-table">
-              <header><span>Destination</span><span>Caller ID</span><span>Flow</span><span>Outcome</span><span>Started</span></header>
-              {calls.length === 0 ? <div className="empty-history"><Cloud size={24} /><strong>No calls yet</strong><span>Run a simulated test call from any published flow.</span></div> : calls.map((call) => (
-                <div key={call.id}>
-                  <button className="history-row" onClick={() => { setActiveCall(call); setCallOpen(true); }}>
-                    <span><PhoneCall size={14} /> {call.destination}</span><span>{call.callerId}</span><span>v{call.flowVersion}</span><span className={`call-outcome call-outcome--${call.status}`} title={call.endReason}>{call.outcome ?? call.endReason ?? call.status}</span><time>{new Date(call.createdAt).toLocaleString()}</time>
-                  </button>
-                  {call.recordingFile && call.recordingExpiresAt && Date.parse(call.recordingExpiresAt) > Date.now() && <a className="history-recording" href={`/api/calls/${call.id}/recording`} download>Download recording</a>}
-                </div>
-              ))}
-            </section>
-          </div>
-        )}
+        {view === "calls" && <CallHistoryPanel onSelect={(call) => { setHistoryCall(call); setActiveCall(undefined); setCallOpen(true); }} onNewCall={openTestCall} />}
       </main>
 
-      <CallConsole open={callOpen} flows={data.flows} trunk={data.trunk} activeCall={activeCall} onClose={() => setCallOpen(false)} onStarted={onCallUpdate} onUpdated={onCallUpdate} />
+      <CallConsole open={callOpen} flows={data.flows} trunk={data.trunk} activeCall={activeCall} historyCall={historyCall} onClose={() => setCallOpen(false)} onStarted={onCallUpdate} onUpdated={onCallUpdate} />
       {notice && <div className={`toast toast--${notice.kind}`}><ShieldCheck size={16} /> {notice.text}</div>}
     </div>
   );

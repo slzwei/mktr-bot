@@ -116,7 +116,8 @@ test("the single-number action states one credit, records the result, skips fres
 
 test("a clearance expiring within three days shows its Singapore date before campaign selection", async ({ page, registry }) => {
   const phone = "+6591234906", checkedAt = new Date(Date.now() - 19 * 86400000).toISOString();
-  registry.store.saveDncClearance({ id: randomUUID(), phone, checkedAt, recordedAt: new Date().toISOString(), cleared: true, source: "Singapore DNC Registry", reference: "Isolated expiry fixture" });
+  const clearance = { id: randomUUID(), phone, checkedAt, recordedAt: new Date().toISOString(), cleared: true, source: "Singapore DNC Registry", reference: "Isolated expiry fixture", evidence: { statusCode: "S000", createdTime: null, validUntil: null, noVoiceCall: false, noTextMessage: false, noFax: false } };
+  registry.store.saveDncClearance(clearance);
   await page.getByLabel("CSV contacts").fill(`name,phone\nExpiring fixture,${phone}`);
   await expect(page.getByTestId("import-preview")).toContainText("1 already covered");
   await page.getByRole("button", { name: "Import 1 contact and check Registry · 0 credits", exact: true }).click();
