@@ -7,6 +7,7 @@ import { CallOrchestrator } from "./orchestrator.js";
 import { initializeStore } from "./runtime-store.js";
 import { createTelephonyAdapter } from "./telephony.js";
 import { installShutdown } from "./shutdown.js";
+import { CampaignDialer } from "./campaigns.js";
 
 const { store, authStore } = await initializeStore();
 await seedAdmin(authStore);
@@ -14,6 +15,8 @@ const adapter = createTelephonyAdapter();
 const classifier = createTranscriptClassifier();
 const calls = new CallOrchestrator(store, adapter, classifier);
 await calls.initialize();
-const { app, closeSseStreams } = createApp({ store, adapter, classifier, calls, authStore });
+const campaignDialer = new CampaignDialer(store, calls);
+const { app, closeSseStreams } = createApp({ store, adapter, classifier, calls, authStore, campaignDialer });
+campaignDialer.start();
 const server = app.listen(config.port, () => logger.info({ port: config.port, mode: adapter.mode }, "MKTR Voice API listening"));
-installShutdown({ server, calls, closeSseStreams, closeStore: () => store.close(), logger });
+installShutdown({ server, calls, closeSseStreams, beforeDrain: () => campaignDialer.close(), closeStore: () => store.close(), logger });

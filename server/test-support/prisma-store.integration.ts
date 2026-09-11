@@ -13,6 +13,8 @@ import { reconcileClipStorage } from "../clip-reconciliation.js";
 import { CallOrchestrator } from "../orchestrator.js";
 import { PrismaStore } from "../prisma-store.js";
 import type { TelephonyAdapter } from "../telephony.js";
+import { CampaignDialer, createCampaign } from "../campaigns.js";
+import { importContacts } from "../contacts.js";
 
 const databaseUrl = process.env.DATABASE_TEST_URL;
 if (!databaseUrl) throw new Error("Run this suite through npm run test:db with a disposable test database.");
@@ -199,4 +201,42 @@ test("flow deletion preserves published history and referenced clips while unref
     assert.equal(restored.getClip(clip.id)?.status, "archived");
     assert.equal(restored.getClip(disposable.id), undefined);
   } finally { await restored.close(); }
+});
+
+test("campaign contacts, pins, attempt state and linked call survive Postgres restart with attempt persisted before originate", async () => {
+  const store = await PrismaStore.connect(databaseUrl);
+  const sql = new PrismaClient({ datasourceUrl: databaseUrl });
+  const original = store.saveFlow(flow());
+  await store.flush();
+  const imported = await importContacts(store, `name,phone\nDurable campaign contact,+658${String(Date.now()).slice(-7)}`);
+  const campaign = await createCampaign(store, { name: "Durable campaign", flowId: original.id, callerId: "+6562773211", contactIds: [imported.contacts[0].id] });
+  let persistedBeforeOriginate = false;
+  const calls = new CallOrchestrator(store, { ...fakeAdapter(), async originate(_input, providerCallId) {
+    const attempt = await sql.campaignContact.findFirst({ where: { campaignId: campaign.id } });
+    persistedBeforeOriginate = attempt?.status === "dialing" && attempt.attempts === 1;
+    return { providerCallId: providerCallId! };
+  } });
+  const dialer = new CampaignDialer(store, calls, { now: () => new Date("2026-09-11T01:00:00Z") });
+  await dialer.control(campaign.id, "start"); await dialer.tick();
+  assert.equal(persistedBeforeOriginate, true);
+  await dialer.control(campaign.id, "pause");
+  const entry = store.listCampaignContacts(campaign.id)[0];
+  await calls.stop(entry.lastCallId!);
+  const call = store.getCall(entry.lastCallId!)!;
+  // Public store contract preserves campaign metadata as well as all call history.
+  store.saveCall({ ...call, campaignId: campaign.id, contactId: imported.contacts[0].id });
+  store.saveCampaignContact({ ...entry, status: "pending", outcome: "busy", nextAttemptAt: "2026-09-11T01:01:00Z" });
+  await store.flush();
+  const expectedCampaign = store.getCampaign(campaign.id), expectedContact = store.listCampaignContacts(campaign.id)[0];
+  await dialer.close(); await calls.shutdown(); await store.close();
+  const restored = await PrismaStore.connect(databaseUrl);
+  try {
+    assert.deepEqual(restored.getCampaign(campaign.id), expectedCampaign);
+    assert.deepEqual(restored.listCampaignContacts(campaign.id)[0], JSON.parse(JSON.stringify(expectedContact)));
+    assert.equal(restored.findContactByPhone(imported.contacts[0].phone)?.id, imported.contacts[0].id);
+    assert.equal(restored.getCall(call.id)?.campaignId, campaign.id);
+    const row = await sql.call.findUniqueOrThrow({ where: { id: call.id }, include: { campaign: true, contact: true } });
+    assert.equal(row.campaign?.flowVersion, original.version); assert.equal(row.contact?.phone, imported.contacts[0].phone);
+    assert.equal(restored.getCampaign(campaign.id)?.status, "paused");
+  } finally { await restored.close(); await sql.$disconnect(); }
 });

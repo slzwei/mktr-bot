@@ -1,6 +1,9 @@
 import type {
   BootstrapData,
   CallSession,
+  CampaignDetail,
+  CampaignInput,
+  Contact,
   Clip,
   FlowDefinition,
   TestCallInput
@@ -35,6 +38,12 @@ export const api = {
   login: (email: string, password: string) => request<{ user: Operator }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   bootstrap: () => request<BootstrapData>("/api/bootstrap"),
+  contacts: () => request<Contact[]>("/api/contacts"),
+  importContacts: (csv: string) => request<{ imported: number; duplicates: number; contacts: Contact[] }>("/api/contacts/import", { method: "POST", body: JSON.stringify({ csv }) }),
+  campaigns: () => request<CampaignDetail[]>("/api/campaigns"),
+  campaign: (id: string) => request<CampaignDetail>(`/api/campaigns/${id}`),
+  createCampaign: (input: CampaignInput) => request<CampaignDetail>("/api/campaigns", { method: "POST", body: JSON.stringify(input) }),
+  controlCampaign: (id: string, action: "start" | "pause" | "stop") => request<CampaignDetail>(`/api/campaigns/${id}/${action}`, { method: "POST", body: "{}" }),
   createFlow: (name: string) => request<FlowDefinition>("/api/flows", { method: "POST", body: JSON.stringify({ name }) }),
   saveFlow: (flow: FlowDefinition) => request<FlowDefinition>(`/api/flows/${flow.id}`, { method: "PUT", body: JSON.stringify(flow) }),
   publishFlow: (flowId: string) => request<{ flow: FlowDefinition; validation: { valid: boolean; errors: string[] } }>(`/api/flows/${flowId}/publish`, { method: "POST" }),

@@ -128,6 +128,8 @@ export type CallSession = {
   callerId: CallerId;
   flowId: string;
   flowVersion: number;
+  campaignId?: string;
+  contactId?: string;
   status: CallStatus;
   currentNodeId?: string;
   createdAt: string;
@@ -171,7 +173,72 @@ export type TestCallInput = {
   destination: string;
   callerId: CallerId;
   flowId: string;
+  flowVersion?: number;
+  campaignId?: string;
+  contactId?: string;
   scenario?: "interested" | "not_interested" | "callback" | "uncertain";
+};
+
+export type Contact = {
+  id: string;
+  name: string;
+  phone: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallingHours = {
+  days: number[];
+  start: string;
+  end: string;
+  timeZone: "Asia/Singapore";
+};
+
+export type Campaign = {
+  id: string;
+  name: string;
+  flowId: string;
+  flowVersion: number;
+  callerId: CallerId;
+  status: "draft" | "running" | "paused" | "stopped" | "completed";
+  callingHours: CallingHours;
+  maxAttempts: number;
+  retryDelaySeconds: number;
+  dialIntervalMs: number;
+  lastDialAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CampaignContact = {
+  id: string;
+  campaignId: string;
+  contactId: string;
+  ordinal: number;
+  status: "pending" | "dialing" | "completed" | "skipped";
+  attempts: number;
+  nextAttemptAt?: string;
+  lastAttemptAt?: string;
+  lastCallId?: string;
+  outcome?: string;
+  skipReason?: string;
+  lastError?: string;
+};
+
+export type CampaignDetail = Campaign & {
+  withinCallingHours: boolean;
+  progress: { total: number; pending: number; dialing: number; completed: number; skipped: number };
+  contacts: (CampaignContact & { contact: Contact })[];
+};
+
+export type CampaignInput = Pick<Campaign, "name" | "flowId" | "callerId"> & {
+  flowVersion?: number;
+  contactIds: string[];
+  callingHours?: CallingHours;
+  maxAttempts?: number;
+  retryDelaySeconds?: number;
+  dialIntervalMs?: number;
 };
 
 export const SCENARIOS: Record<

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import type { CallSession, Clip, FlowDefinition, FlowNode } from "../src/lib/domain.js";
+import { isCallerId, type CallSession, type Campaign, type CampaignContact, type Clip, type Contact, type FlowDefinition, type FlowNode } from "../src/lib/domain.js";
 
 const now = () => new Date().toISOString();
 
@@ -193,6 +193,9 @@ export type StoreSnapshot = {
   versions: FlowDefinition[];
   clips: Clip[];
   calls: CallSession[];
+  contacts?: Contact[];
+  campaigns?: Campaign[];
+  campaignContacts?: CampaignContact[];
 };
 
 /** Mutations update the process cache immediately. Await flush before acknowledging
@@ -214,6 +217,15 @@ export interface Store {
   saveCall(session: CallSession): CallSession;
   getCall(id: string): CallSession | undefined;
   listCalls(): CallSession[];
+  listContacts(): Contact[];
+  getContact(id: string): Contact | undefined;
+  findContactByPhone(phone: string): Contact | undefined;
+  saveContacts(contacts: Contact[]): Contact[];
+  listCampaigns(): Campaign[];
+  getCampaign(id: string): Campaign | undefined;
+  saveCampaign(campaign: Campaign, contacts?: CampaignContact[]): Campaign;
+  listCampaignContacts(campaignId: string): CampaignContact[];
+  saveCampaignContact(contact: CampaignContact): CampaignContact;
   flush(): Promise<void>;
   close(): Promise<void>;
 }
@@ -223,6 +235,9 @@ export class InMemoryStore implements Store {
   protected readonly versions = new Map<string, FlowDefinition>();
   protected readonly clips = new Map<string, Clip>();
   protected readonly calls = new Map<string, CallSession>();
+  protected readonly contacts = new Map<string, Contact>();
+  protected readonly campaigns = new Map<string, Campaign>();
+  protected readonly campaignContacts = new Map<string, CampaignContact>();
 
   constructor(snapshot?: StoreSnapshot) {
     const initial = snapshot ?? { flows: [initialFlow], versions: [initialFlow], clips, calls: [] };
@@ -230,6 +245,9 @@ export class InMemoryStore implements Store {
     initial.versions.forEach((flow) => this.versions.set(this.versionKey(flow.id, flow.version), clone(flow)));
     initial.clips.forEach((clip) => this.clips.set(clip.id, clone(clip)));
     initial.calls.forEach((call) => this.calls.set(call.id, clone(call)));
+    initial.contacts?.forEach((contact) => this.contacts.set(contact.id, clone(contact)));
+    initial.campaigns?.forEach((campaign) => this.campaigns.set(campaign.id, clone(campaign)));
+    initial.campaignContacts?.forEach((contact) => this.campaignContacts.set(contact.id, clone(contact)));
     this.refreshClipUsage();
   }
 
@@ -310,6 +328,51 @@ export class InMemoryStore implements Store {
   }
   getCall(id: string): CallSession | undefined { const call = this.calls.get(id); return call ? clone(call) : undefined; }
   listCalls(): CallSession[] { return [...this.calls.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(clone); }
+  listContacts(): Contact[] { return [...this.contacts.values()].map(clone); }
+  getContact(id: string): Contact | undefined { const contact = this.contacts.get(id); return contact ? clone(contact) : undefined; }
+  findContactByPhone(phone: string): Contact | undefined { const contact = [...this.contacts.values()].find((item) => item.phone === phone); return contact ? clone(contact) : undefined; }
+  saveContacts(contacts: Contact[]): Contact[] {
+    this.assertWritable();
+    const phones = new Map([...this.contacts.values()].map((contact) => [contact.phone, contact.id]));
+    for (const contact of contacts) {
+      if (!/^\+[1-9]\d{7,14}$/.test(contact.phone)) throw new Error("Contact phone must be normalized E.164.");
+      if (phones.has(contact.phone) && phones.get(contact.phone) !== contact.id) throw new Error("Contact phone already exists.");
+      const previous = this.getContact(contact.id);
+      if (previous && previous.phone !== contact.phone) throw new Error("Create a new contact when its phone changes; campaign history is immutable.");
+      phones.set(contact.phone, contact.id);
+    }
+    contacts.forEach((contact) => this.contacts.set(contact.id, clone(contact)));
+    this.writeContacts(clone(contacts));
+    return clone(contacts);
+  }
+  listCampaigns(): Campaign[] { return [...this.campaigns.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(clone); }
+  getCampaign(id: string): Campaign | undefined { const campaign = this.campaigns.get(id); return campaign ? clone(campaign) : undefined; }
+  saveCampaign(campaign: Campaign, contacts?: CampaignContact[]): Campaign {
+    this.assertWritable();
+    if (!this.getFlowVersion(campaign.flowId, campaign.flowVersion)) throw new Error("Campaign requires an immutable published flow version.");
+    if (!isCallerId(campaign.callerId)) throw new Error("Campaign caller ID must be approved.");
+    const previous = this.getCampaign(campaign.id);
+    if (previous && (previous.flowId !== campaign.flowId || previous.flowVersion !== campaign.flowVersion || previous.callerId !== campaign.callerId)) throw new Error("Campaign flow version and caller ID are pinned; create a new campaign to change them.");
+    if (contacts && previous) throw new Error("Campaign contact membership is immutable.");
+    const contactIds = new Set<string>();
+    for (const contact of contacts ?? []) {
+      if (contact.campaignId !== campaign.id || !this.getContact(contact.contactId) || contactIds.has(contact.contactId)) throw new Error("Campaign requires unique existing contacts.");
+      contactIds.add(contact.contactId);
+    }
+    this.campaigns.set(campaign.id, clone(campaign));
+    contacts?.forEach((contact) => this.campaignContacts.set(contact.id, clone(contact)));
+    this.writeCampaign(clone(campaign), contacts ? clone(contacts) : undefined);
+    return clone(campaign);
+  }
+  listCampaignContacts(campaignId: string): CampaignContact[] { return [...this.campaignContacts.values()].filter((contact) => contact.campaignId === campaignId).sort((a, b) => a.ordinal - b.ordinal).map(clone); }
+  saveCampaignContact(contact: CampaignContact): CampaignContact {
+    this.assertWritable();
+    const previous = this.campaignContacts.get(contact.id);
+    if (!previous || previous.campaignId !== contact.campaignId || previous.contactId !== contact.contactId || previous.ordinal !== contact.ordinal) throw new Error("Campaign contact membership is immutable.");
+    this.campaignContacts.set(contact.id, clone(contact));
+    this.writeCampaignContact(clone(contact));
+    return clone(contact);
+  }
   async flush(): Promise<void> { return; }
   async close(): Promise<void> { return; }
   protected assertWritable(): void { return; }
@@ -318,6 +381,9 @@ export class InMemoryStore implements Store {
   protected writeFlow(_flow: FlowDefinition): void { return; }
   protected writeClip(_clip: Clip): void { return; }
   protected writeCall(_session: CallSession): void { return; }
+  protected writeContacts(_contacts: Contact[]): void { return; }
+  protected writeCampaign(_campaign: Campaign, _contacts?: CampaignContact[]): void { return; }
+  protected writeCampaignContact(_contact: CampaignContact): void { return; }
   protected versionKey(id: string, version: number): string { return `${id}:${version}`; }
   protected refreshClipUsage(): void {
     const usage = new Map<string, number>();

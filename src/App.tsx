@@ -24,15 +24,17 @@ import { ClipLibrary } from "./components/ClipLibrary";
 import { FlowCanvas } from "./components/FlowCanvas";
 import { TrunkPanel } from "./components/TrunkPanel";
 import { SessionGate } from "./components/SignIn";
+import { CampaignsPanel } from "./components/CampaignsPanel";
 import { api, ApiError, type Operator } from "./lib/api";
 import type { BootstrapData, CallSession, Clip, FlowDefinition } from "./lib/domain";
 
-type View = "flows" | "clips" | "calls" | "trunk";
+type View = "flows" | "clips" | "calls" | "trunk" | "campaigns";
 
 const navigation: { id: View; label: string; icon: typeof GitBranch }[] = [
   { id: "flows", label: "Flows", icon: GitBranch },
   { id: "clips", label: "Audio clips", icon: AudioLines },
   { id: "calls", label: "Call history", icon: FileClock },
+  { id: "campaigns", label: "Campaigns", icon: PhoneCall },
   { id: "trunk", label: "SIP trunk", icon: RadioTower }
 ];
 
@@ -230,6 +232,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
 
         {view === "clips" && <ClipLibrary clips={data.clips} onCreated={onClipCreated} />}
         {view === "trunk" && <TrunkPanel trunk={data.trunk} />}
+        {view === "campaigns" && <CampaignsPanel flows={data.flows} />}
         {view === "calls" && (
           <div className="history-view">
             <section className="library-header"><div><span className="eyebrow"><FileClock size={14} /> Call history</span><h1>Test call sessions</h1><p>Review call outcomes, selected branches, and measured decision latency.</p></div><button className="primary-button" onClick={() => setCallOpen(true)}><PhoneCall size={16} /> New test call</button></section>

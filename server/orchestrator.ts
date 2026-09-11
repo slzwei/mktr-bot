@@ -144,7 +144,16 @@ export class CallOrchestrator {
     let session: CallSession | undefined;
 
     try {
-      const flow = this.store.getFlow(input.flowId);
+      const flow = input.flowVersion === undefined ? this.store.getFlow(input.flowId) : this.store.getFlowVersion(input.flowId, input.flowVersion);
+      if (input.campaignId || input.contactId) {
+        const campaign = input.campaignId ? this.store.getCampaign(input.campaignId) : undefined;
+        const contact = input.contactId ? this.store.getContact(input.contactId) : undefined;
+        if (!campaign || campaign.status !== "running" || !contact || contact.phone !== input.destination
+          || campaign.flowId !== input.flowId || campaign.flowVersion !== input.flowVersion || campaign.callerId !== input.callerId
+          || !this.store.listCampaignContacts(campaign.id).some((entry) => entry.contactId === contact.id && entry.status === "dialing")) {
+          throw new Error("Campaign dial must match its running campaign, pinned flow and current contact attempt.");
+        }
+      }
       if (!flow) throw new Error("Selected flow no longer exists.");
       if (flow.status !== "published") throw new Error("Publish the flow before starting a call.");
 
@@ -155,6 +164,8 @@ export class CallOrchestrator {
         callerId: input.callerId,
         flowId: flow.id,
         flowVersion: flow.version,
+        campaignId: input.campaignId,
+        contactId: input.contactId,
         status: "queued",
         createdAt: new Date().toISOString(),
         events: []

@@ -55,6 +55,7 @@ model FlowVersion {
   publishedAt DateTime @default(now())
   flow        Flow     @relation(fields: [flowId], references: [id])
   calls       Call[]
+  campaigns   Campaign[]
 
   @@id([flowId, version])
 }
@@ -84,6 +85,8 @@ model Call {
   callerId       String
   flowId         String
   flowVersion    Int
+  campaignId     String?
+  contactId      String?
   status         CallStatus
   endReason      String?
   classifier     Json?
@@ -94,9 +97,81 @@ model Call {
   flow           Flow       @relation(fields: [flowId], references: [id])
   graphVersion   FlowVersion @relation(fields: [flowId, flowVersion], references: [flowId, version])
   events         CallEvent[]
+  campaign       Campaign? @relation(fields: [campaignId], references: [id])
+  contact        Contact? @relation(fields: [contactId], references: [id])
 
   @@index([createdAt])
   @@index([flowId, flowVersion])
+  @@index([campaignId, contactId])
+}
+
+enum CampaignStatus {
+  draft
+  running
+  paused
+  stopped
+  completed
+}
+
+enum CampaignContactStatus {
+  pending
+  dialing
+  completed
+  skipped
+}
+
+model Contact {
+  id        String @id
+  name      String
+  phone     String @unique
+  snapshot  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  campaigns CampaignContact[]
+  calls     Call[]
+}
+
+model Campaign {
+  id                String @id
+  name              String
+  flowId            String
+  flowVersion       Int
+  callerId          String
+  status            CampaignStatus @default(draft)
+  callingHours      Json
+  maxAttempts       Int
+  retryDelaySeconds Int
+  dialIntervalMs    Int
+  lastDialAt        DateTime?
+  snapshot          Json
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  graphVersion      FlowVersion @relation(fields: [flowId, flowVersion], references: [flowId, version])
+  contacts          CampaignContact[]
+  calls             Call[]
+
+  @@index([status, createdAt])
+}
+
+model CampaignContact {
+  id            String @id
+  campaignId    String
+  contactId     String
+  ordinal       Int
+  status        CampaignContactStatus @default(pending)
+  attempts      Int @default(0)
+  nextAttemptAt DateTime?
+  lastAttemptAt DateTime?
+  lastCallId    String?
+  outcome       String?
+  skipReason    String?
+  snapshot      Json
+  campaign      Campaign @relation(fields: [campaignId], references: [id])
+  contact       Contact @relation(fields: [contactId], references: [id])
+
+  @@unique([campaignId, contactId])
+  @@unique([campaignId, ordinal])
+  @@index([campaignId, status, nextAttemptAt])
 }
 
 model CallEvent {

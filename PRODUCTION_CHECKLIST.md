@@ -121,8 +121,8 @@ Verify: CI is green on the default branch. `docker run --rm <image> id -u` is no
 ## Tier C. Before real campaigns
 
 ### C1. Contacts, campaigns, and dialer
-Status: todo
-Evidence: 2026-09-11 schema/source audit: `prisma/schema.prisma:33` onward defines only Flow, Clip, Call, and CallEvent; there are no Contact/Campaign/CampaignContact models, CSV importer, paced dialer, calling-hours/retry policy, or campaign controls. The 4 unit and 10 browser tests contain neither dialer/hours cases nor a three-contact campaign e2e; required verification is unavailable until implemented.
+Status: done
+Evidence: Merged build, 72 unit tests, 16 Chromium tests and 6 native PostgreSQL assertions pass; campaign tests prove pacing/shared capacity, Singapore hours, bounded busy/no-answer retry, pause/stop and three simulated contacts completing. The HTTP/fake-ESL test also deletes the current flow after republishing and verifies the dial still uses its pinned v3, with durable campaign/contact IDs and rejection of mismatched metadata. Verified against fake ESL and simulator only. Docker-dependent DB Verify remains blocked: Docker not installed on host.
 Why: The only way to place a call is typing one number into a test console.
 Done when: `Contact`, `Campaign`, and `CampaignContact` models exist. CSV import normalises to E.164. A dialer service paces against `MKTR_MAX_CONCURRENT_CALLS`, respects per-campaign calling hours (default Monday to Saturday 09:00 to 20:00 Singapore time), applies a retry policy for no-answer and busy, and caps attempts per contact. The UI can start, pause, and stop a campaign and shows live progress.
 Verify: Dialer unit tests cover pacing and hours. An e2e campaign of three simulated contacts completes with outcomes recorded.

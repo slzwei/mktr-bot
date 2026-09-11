@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import type { Logger } from "pino";
 
-export function installShutdown(options: { server: Server; calls: { shutdown(): Promise<void> }; closeSseStreams(): void; closeStore?(): Promise<void>; logger: Logger; deadlineMs?: number }) {
+export function installShutdown(options: { server: Server; calls: { shutdown(): Promise<void> }; closeSseStreams(): void; beforeDrain?(): Promise<void>; closeStore?(): Promise<void>; logger: Logger; deadlineMs?: number }) {
   let operation: Promise<void> | undefined;
   const shutdown = (signal: string) => {
     if (operation) return operation;
@@ -16,6 +16,7 @@ export function installShutdown(options: { server: Server; calls: { shutdown(): 
       options.server.closeIdleConnections();
       options.closeSseStreams();
       try {
+        await options.beforeDrain?.();
         await options.calls.shutdown();
         await options.closeStore?.();
         options.server.closeAllConnections();

@@ -10,6 +10,8 @@ import { z } from "zod";
 import { CALLER_IDS, type TestCallInput } from "../src/lib/domain.js";
 import { createAuth, requireAdmin, requireMediaGateway, type AuthStore } from "./auth.js";
 import { config } from "./config.js";
+import { CampaignDialer, campaignDetail, createCampaign } from "./campaigns.js";
+import { importContacts } from "./contacts.js";
 import type { TranscriptClassifier } from "./classifier.js";
 import { validateFlow } from "./flow-validation.js";
 import { logger as defaultLogger, withLogContext } from "./logger.js";
@@ -35,6 +37,7 @@ export type AppDependencies = {
   logger?: Logger;
   metrics?: VoiceMetrics;
   callRateLimit?: number;
+  campaignDialer?: CampaignDialer;
 };
 
 export function createApp(dependencies: AppDependencies) {
@@ -46,6 +49,7 @@ export function createApp(dependencies: AppDependencies) {
   const app = express();
   const streams = new Set<Response>();
   const auth = createAuth(authStore);
+  const campaigns = dependencies.campaignDialer ?? new CampaignDialer(store, calls, { logger });
   app.disable("x-powered-by");
   app.set("trust proxy", dependencies.trustProxy ?? config.trustProxy);
   app.use(helmet({
@@ -115,6 +119,22 @@ export function createApp(dependencies: AppDependencies) {
 
   app.get("/api/bootstrap", async (_request, response) => {
     response.json({ flows: await store.listFlows(), clips: await store.listClips(), calls: await store.listCalls(), trunk: getTrunkStatus(calls.activeCallCount(), adapter) });
+  });
+  app.get("/api/contacts", (_request, response) => response.json(store.listContacts()));
+  app.post("/api/contacts/import", async (request, response) => {
+    const body = z.object({ csv: z.string().min(1).max(1_000_000) }).strict().parse(request.body);
+    return response.status(201).json(await importContacts(store, body.csv));
+  });
+  app.get("/api/campaigns", (_request, response) => response.json(store.listCampaigns().map((campaign) => campaignDetail(store, campaign.id))));
+  app.get("/api/campaigns/:id", (request, response) => response.json(campaignDetail(store, request.params.id)));
+  app.post("/api/campaigns", async (request, response) => {
+    const campaign = await createCampaign(store, request.body);
+    return response.status(201).json(campaignDetail(store, campaign.id));
+  });
+  app.post("/api/campaigns/:id/:action", async (request, response) => {
+    z.object({}).strict().parse(request.body ?? {});
+    const action = z.enum(["start", "pause", "stop"]).parse(request.params.action);
+    return response.json(await campaigns.control(request.params.id, action));
   });
   app.get("/api/flows/:id", async (request, response) => {
     const flow = await store.getFlow(request.params.id);
