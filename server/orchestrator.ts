@@ -16,7 +16,7 @@ import { SCENARIOS } from "../src/lib/domain.js";
 import { createTranscriptClassifier, type TranscriptClassifier } from "./classifier.js";
 import { config } from "./config.js";
 import { InMemoryStore } from "./store.js";
-import { assertAllowedCallerId, type TelephonyAdapter } from "./telephony.js";
+import { assertAllowedCallerId, type TelephonyAdapter, type TelephonyEvent } from "./telephony.js";
 
 const activeStatuses = new Set<CallStatus>([
   "queued",
@@ -49,13 +49,23 @@ export class CallOrchestrator {
   private readonly simulationReplies = new Map<string, string[]>();
   private readonly traversalHops = new Map<string, number>();
   private pendingStarts = 0;
+  private readonly playbacks = new Map<string, { id: string; target: string }>();
+  private readonly terminations = new Map<string, Promise<CallSession>>();
+  private readonly operations = new Map<string, Promise<unknown>>();
+  private readonly unsubscribeAdapter?: () => void;
 
   constructor(
     private readonly store: InMemoryStore,
     private readonly adapter: TelephonyAdapter,
     private readonly classifier: TranscriptClassifier = createTranscriptClassifier(),
     private readonly playbackDelay: PlaybackDelay = defaultPlaybackDelay
-  ) {}
+  ) {
+    this.unsubscribeAdapter = adapter.onEvent?.((event) => {
+      void this.handleTelephonyEvent(event).catch((error: unknown) => {
+        console.error("Telephony event handling failed", { providerCallId: event.providerCallId, error });
+      });
+    });
+  }
 
   activeCallCount(): number {
     return this.store.listCalls().filter((call) => activeStatuses.has(call.status)).length;
@@ -66,20 +76,21 @@ export class CallOrchestrator {
     if (!/^\+[1-9]\d{7,14}$/.test(input.destination)) {
       throw new Error("Destination must use E.164 format, for example +6591234567.");
     }
-    if (this.activeCallCount() + this.pendingStarts >= config.maxConcurrentCalls) {
+    if (this.activeCallCount() + this.pendingStarts >= Math.min(5, config.maxConcurrentCalls)) {
       throw new Error("The Singtel trunk is at its " + config.maxConcurrentCalls + "-call limit.");
     }
     this.pendingStarts += 1;
+    let reserved = true;
+    let session: CallSession | undefined;
 
     try {
       const flow = this.store.getFlow(input.flowId);
       if (!flow) throw new Error("Selected flow no longer exists.");
       if (flow.status !== "published") throw new Error("Publish the flow before starting a call.");
 
-      const provider = await this.adapter.originate(input);
-      const session: CallSession = {
+      session = {
         id: randomUUID(),
-        providerCallId: provider.providerCallId,
+        providerCallId: randomUUID(),
         destination: input.destination,
         callerId: input.callerId,
         flowId: flow.id,
@@ -92,12 +103,24 @@ export class CallOrchestrator {
       this.record(session, "queued", "Call queued", flow.name + " v" + flow.version);
       this.store.saveCall(session);
       this.publish(session);
+      this.pendingStarts -= 1;
+      reserved = false;
+      // Persist the UUID before sending originate: answer/job events may precede its reply.
+      const provider = await this.adapter.originate(input, session.providerCallId);
+      const current = this.store.getCall(session.id) ?? session;
+      if (current.providerCallId !== provider.providerCallId) {
+        current.providerCallId = provider.providerCallId;
+        this.persist(current);
+      }
       if (this.adapter.mode === "simulated") {
         this.runSimulation(session.id, input.scenario ?? "interested");
       }
-      return session;
+      return this.store.getCall(session.id) ?? session;
+    } catch (error) {
+      if (session) await this.finish(session, "failed", error instanceof Error ? error.message : "Originate failed.");
+      throw error;
     } finally {
-      this.pendingStarts -= 1;
+      if (reserved) this.pendingStarts -= 1;
     }
   }
 
@@ -105,17 +128,18 @@ export class CallOrchestrator {
     const session = this.store.getCall(id);
     if (!session) throw new Error("Call not found.");
     if (!activeStatuses.has(session.status)) return session;
-    this.cancelSchedule(id);
-    await this.adapter.hangup(session.providerCallId);
-    this.end(session, reason);
-    return session;
+    return this.finish(session, "ended", reason);
   }
 
   get(id: string): CallSession | undefined {
     return this.store.getCall(id);
   }
 
-  async markAnswered(id: string): Promise<CallSession> {
+  markAnswered(id: string): Promise<CallSession> {
+    return this.enqueue(id, () => this.answer(id));
+  }
+
+  private async answer(id: string): Promise<CallSession> {
     const session = this.store.getCall(id);
     if (!session) throw new Error("Call not found.");
     if (!activeStatuses.has(session.status)) return session;
@@ -131,12 +155,16 @@ export class CallOrchestrator {
       await this.advance(session, flow, flow.startNodeId);
       return this.store.getCall(id) ?? session;
     } catch (error) {
-      this.fail(session, error instanceof Error ? error.message : "Call automation failed.");
+      await this.finish(session, "failed", error instanceof Error ? error.message : "Call automation failed.");
       throw error;
     }
   }
 
-  async submitTranscript(id: string, transcript: string): Promise<CallSession> {
+  submitTranscript(id: string, transcript: string): Promise<CallSession> {
+    return this.enqueue(id, () => this.classifyTranscript(id, transcript));
+  }
+
+  private async classifyTranscript(id: string, transcript: string): Promise<CallSession> {
     const session = this.store.getCall(id);
     if (!session) throw new Error("Call not found.");
     if (session.status !== "listening") throw new Error("The call is not waiting for a callee response.");
@@ -149,10 +177,13 @@ export class CallOrchestrator {
 
     try {
       this.record(session, "transcript_final", "Transcript final", transcript, listeningNode.id, 78);
+      session.status = "classifying";
       this.persist(session);
 
       const startedAt = performance.now();
       const result = await this.classifier.classify(transcript);
+      const latest = this.store.getCall(id);
+      if (!latest || !activeStatuses.has(latest.status) || this.terminations.has(id)) return latest ?? session;
       const latencyMs = Math.max(1, Math.round(performance.now() - startedAt));
       session.classifierResult = result;
       this.transition(
@@ -178,7 +209,7 @@ export class CallOrchestrator {
       await this.advance(session, flow, route.target, result);
       return this.store.getCall(id) ?? session;
     } catch (error) {
-      this.fail(session, error instanceof Error ? error.message : "Call automation failed.");
+      await this.finish(session, "failed", error instanceof Error ? error.message : "Call automation failed.");
       throw error;
     }
   }
@@ -195,10 +226,10 @@ export class CallOrchestrator {
   ) {
     this.simulationReplies.set(callId, [SCENARIOS[scenario].transcript]);
     this.after(callId, 100, (session) => {
-      this.transition(session, "dialing", "dialing", "Dialing destination", session.destination);
+      if (session.status === "queued") this.transition(session, "dialing", "dialing", "Dialing destination", session.destination);
     });
     this.after(callId, 800, (session) => {
-      this.transition(session, "ringing", "ringing", "Phone is ringing", "Caller ID " + session.callerId);
+      if (["queued", "dialing"].includes(session.status)) this.transition(session, "ringing", "ringing", "Phone is ringing", "Caller ID " + session.callerId);
     });
     this.after(callId, 1_650, async (session) => {
       await this.markAnswered(session.id);
@@ -231,17 +262,16 @@ export class CallOrchestrator {
     }
 
     if (node.type === "playClip" || node.type === "retry") {
-      const clip = await this.playNode(session, node);
       const route = this.pickLinearRoute(flow, node.id);
-      if (!route) {
-        this.end(session, "Flow completed");
-        return;
+      if (!route) throw new Error("The clip node has no route.");
+      const playbackId = randomUUID();
+      this.playbacks.set(session.id, { id: playbackId, target: route.target });
+      const clip = await this.playNode(session, node, playbackId);
+      if (this.adapter.mode === "simulated") {
+        this.after(session.id, this.playbackDelay(clip, "simulated"), async () => {
+          await this.enqueue(session.id, () => this.playbackStopped(session.id, playbackId));
+        });
       }
-      this.after(session.id, this.playbackDelay(clip, this.adapter.mode), async (current) => {
-        const snapshot = this.flowForSession(current);
-        if (!snapshot) throw new Error("Call flow no longer exists.");
-        await this.advance(current, snapshot, route.target, current.classifierResult);
-      });
       return;
     }
 
@@ -261,7 +291,7 @@ export class CallOrchestrator {
     }
 
     if (node.type === "end") {
-      this.end(session, "Flow completed");
+      await this.finish(session, "ended", "Flow completed");
       return;
     }
 
@@ -289,12 +319,12 @@ export class CallOrchestrator {
     });
   }
 
-  private async playNode(session: CallSession, node: FlowNode): Promise<Clip> {
+  private async playNode(session: CallSession, node: FlowNode, playbackId: string): Promise<Clip> {
     if (!node.data.clipId) throw new Error(node.data.label + " has no audio clip.");
     const clip = this.store.getClip(node.data.clipId);
     if (!clip || clip.status !== "ready") throw new Error(node.data.label + " needs a ready audio clip.");
     this.transition(session, "playing", "clip_playing", "Playing " + node.data.label, "Pre-recorded clip", node.id);
-    await this.adapter.playClip(session.providerCallId, clip);
+    await this.adapter.playClip(session.providerCallId, clip, playbackId);
     return clip;
   }
 
@@ -415,7 +445,8 @@ export class CallOrchestrator {
     } catch (error) {
       const current = this.store.getCall(callId);
       if (current && activeStatuses.has(current.status)) {
-        this.fail(current, error instanceof Error ? error.message : "Call automation failed.");
+        try { await this.finish(current, "failed", error instanceof Error ? error.message : "Call automation failed."); }
+        catch (hangupError) { console.error("Scheduled call termination failed", { callId, error: hangupError }); }
       }
     }
   }
@@ -434,26 +465,77 @@ export class CallOrchestrator {
     this.persist(session);
   }
 
-  private end(session: CallSession, reason: string) {
+  private complete(session: CallSession, status: "ended" | "failed", reason: string): CallSession {
     this.cancelSchedule(session.id);
-    session.status = "ended";
+    session.status = status;
     session.endedAt = new Date().toISOString();
     session.endReason = reason;
-    this.record(session, "ended", "Call ended", reason);
+    this.record(session, status === "failed" ? "error" : "ended", status === "failed" ? "Call failed" : "Call ended", reason);
     this.persist(session);
     this.cleanupRuntimeState(session.id);
+    return session;
   }
 
-  private fail(session: CallSession, reason: string) {
-    const current = this.store.getCall(session.id);
-    if (current && !activeStatuses.has(current.status)) return;
+  private finish(session: CallSession, status: "ended" | "failed", reason: string): Promise<CallSession> {
+    const current = this.store.getCall(session.id) ?? session;
+    if (!activeStatuses.has(current.status)) return Promise.resolve(current);
+    const existing = this.terminations.get(session.id);
+    if (existing) return existing;
     this.cancelSchedule(session.id);
-    session.status = "failed";
-    session.endedAt = new Date().toISOString();
-    session.endReason = reason;
-    this.record(session, "error", "Call failed", reason);
-    this.persist(session);
-    this.cleanupRuntimeState(session.id);
+    const operation = (async () => {
+      try {
+        await this.adapter.hangup(current.providerCallId);
+        const latest = this.store.getCall(current.id) ?? current;
+        if (!activeStatuses.has(latest.status)) return latest;
+        return this.complete(latest, status, reason);
+      } catch (error) {
+        const latest = this.store.getCall(current.id) ?? current;
+        if (!activeStatuses.has(latest.status)) return latest;
+        this.record(latest, "error", "Hangup not confirmed", "Trunk slot retained; retry termination after ESL recovers.");
+        this.persist(latest);
+        throw error;
+      }
+    })();
+    this.terminations.set(session.id, operation);
+    void operation.then(() => this.terminations.delete(session.id), () => this.terminations.delete(session.id));
+    return operation;
+  }
+
+  private enqueue<T>(id: string, action: () => Promise<T>): Promise<T> {
+    const next = (this.operations.get(id) ?? Promise.resolve()).then(action, action);
+    this.operations.set(id, next);
+    void next.then(() => { if (this.operations.get(id) === next) this.operations.delete(id); },
+      () => { if (this.operations.get(id) === next) this.operations.delete(id); });
+    return next;
+  }
+
+  private async playbackStopped(id: string, playbackId?: string): Promise<void> {
+    const session = this.store.getCall(id);
+    const playback = this.playbacks.get(id);
+    if (!session || session.status !== "playing" || !playback || playback.id !== playbackId || this.terminations.has(id)) return;
+    this.playbacks.delete(id);
+    const flow = this.flowForSession(session);
+    if (!flow) throw new Error("Call flow no longer exists.");
+    try { await this.advance(session, flow, playback.target); }
+    catch (error) { await this.finish(session, "failed", error instanceof Error ? error.message : "Playback routing failed."); }
+  }
+
+  private async handleTelephonyEvent(event: TelephonyEvent): Promise<void> {
+    const session = this.store.listCalls().find((call) => call.providerCallId === event.providerCallId);
+    if (!session || !activeStatuses.has(session.status)) return;
+    if (event.type === "hangup") {
+      this.complete(session, "ended", event.cause ?? "NORMAL_CLEARING");
+      return;
+    }
+    await this.enqueue(session.id, async () => {
+      const current = this.store.getCall(session.id);
+      if (!current || !activeStatuses.has(current.status) || this.terminations.has(current.id)) return;
+      if (event.type === "answered") await this.answer(current.id);
+      else if (event.type === "playbackStopped") await this.playbackStopped(current.id, event.playbackId);
+      else if (event.type === "originateFailed") this.complete(current, "failed", event.cause ?? "ORIGINATE_FAILED");
+      else if (event.type === "dialing" && current.status === "queued") this.transition(current, "dialing", "dialing", "Dialing destination");
+      else if (event.type === "ringing" && ["queued", "dialing"].includes(current.status)) this.transition(current, "ringing", "ringing", "Phone is ringing");
+    });
   }
 
   private cancelSchedule(callId: string) {
@@ -462,6 +544,7 @@ export class CallOrchestrator {
   }
 
   private cleanupRuntimeState(callId: string) {
+    this.playbacks.delete(callId);
     this.flowSnapshots.delete(callId);
     this.simulationReplies.delete(callId);
     this.traversalHops.delete(callId);

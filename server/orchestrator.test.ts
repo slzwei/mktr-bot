@@ -3,7 +3,7 @@ import test from "node:test";
 import type { ClassifierResult, FlowDefinition, TestCallInput } from "../src/lib/domain.js";
 import { CallOrchestrator } from "./orchestrator.js";
 import { InMemoryStore } from "./store.js";
-import { SimulatedTelephonyAdapter } from "./telephony.js";
+import { SimulatedTelephonyAdapter, type TelephonyEvent } from "./telephony.js";
 
 const validInput: TestCallInput = {
   destination: "+6591234567",
@@ -105,6 +105,7 @@ test("continues through a second listen and decision drawn in the flow", async (
     first: { intent: "interested", sentiment: "positive", confidence: 0.94, transcript: "first", provider: "rules" },
     second: { intent: "callback", sentiment: "neutral", confidence: 0.91, transcript: "second", provider: "rules" }
   };
+  let emit: ((event: TelephonyEvent) => void) | undefined;
   const orchestrator = new CallOrchestrator(
     store,
     {
@@ -113,7 +114,10 @@ test("continues through a second listen and decision drawn in the flow", async (
       async originate() {
         return { providerCallId: "test-call" };
       },
-      async playClip() {},
+      onEvent(listener) { emit = listener; return () => { emit = undefined; }; },
+      async playClip(providerCallId, _clip, playbackId) {
+        queueMicrotask(() => emit?.({ type: "playbackStopped", providerCallId, playbackId }));
+      },
       async hangup() {}
     },
     {
@@ -143,4 +147,45 @@ test("continues through a second listen and decision drawn in the flow", async (
       .map((event) => event.title),
     ["Branch selected: Interested", "Branch selected: Callback"]
   );
+});
+
+test("a flow error hangs up once and a failed hangup retains the trunk slot for retry", async () => {
+  const store = new InMemoryStore();
+  const flow = store.getFlow(validInput.flowId)!;
+  flow.edges = [];
+  store.saveFlow(flow);
+  let hangups = 0;
+  let rejectHangup = true;
+  const orchestrator = new CallOrchestrator(store, {
+    mode: "simulated", configured: true,
+    async originate() { return { providerCallId: "fixture" }; },
+    async playClip() {},
+    async hangup() { hangups++; if (rejectHangup) throw new Error("Fake ESL disconnected"); }
+  });
+  const call = await orchestrator.start(validInput);
+  await assert.rejects(orchestrator.markAnswered(call.id), /Fake ESL disconnected/);
+  assert.equal(orchestrator.activeCallCount(), 1);
+  assert.equal(hangups, 1);
+  rejectHangup = false;
+  await Promise.all([orchestrator.stop(call.id), orchestrator.stop(call.id)]);
+  assert.equal(hangups, 2);
+  assert.equal(orchestrator.activeCallCount(), 0);
+});
+
+test("a flow with no route terminates its provider channel", async () => {
+  const store = new InMemoryStore();
+  const flow = store.getFlow(validInput.flowId)!;
+  flow.edges = [];
+  store.saveFlow(flow);
+  let hangups = 0;
+  const orchestrator = new CallOrchestrator(store, {
+    mode: "simulated", configured: true,
+    async originate() { return { providerCallId: "fixture" }; },
+    async playClip() {}, async hangup() { hangups++; }
+  });
+  const call = await orchestrator.start(validInput);
+  await assert.rejects(orchestrator.markAnswered(call.id), /start node has no route/);
+  assert.equal(hangups, 1);
+  assert.equal(orchestrator.get(call.id)?.status, "failed");
+  assert.equal(orchestrator.activeCallCount(), 0);
 });

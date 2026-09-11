@@ -54,7 +54,7 @@ This starts the API in simulator mode. Postgres and Redis are provisioned for th
 5. Set `MKTR_TELEPHONY_MODE=freeswitch`, `MKTR_SINGTEL_SIP_PASSWORD`, `MKTR_FREESWITCH_ESL_PASSWORD`, and a long `MKTR_MEDIA_GATEWAY_TOKEN` in the secret store, then start the live profile with `docker compose --profile live up -d`.
 6. Confirm the trunk panel reports “Gateway enabled” and test one approved caller ID. Never test with `+6562773210`.
 
-The current FreeSWITCH adapter handles originate, clip playback, and hangup through ESL. A production media worker must still stream callee audio to the selected STT provider and call `POST /api/calls/:id/answered` and `POST /api/calls/:id/transcript` with `Authorization: Bearer $MKTR_MEDIA_GATEWAY_TOKEN`. The latter endpoint classifies the transcript, selects the matching flow route, and plays the matching clip. The flow editor, validation, caller-ID policy, five-call guard, and event contract are in place for that worker.
+The FreeSWITCH adapter now keeps a persistent authenticated ESL connection. Answer, hangup, background originate results, and playback completion drive the orchestrator; flow completion and errors explicitly terminate the provider channel. Reconnect never replays originate commands. A production media worker must still stream callee audio to the selected STT provider and call `POST /api/calls/:id/answered` and `POST /api/calls/:id/transcript` with `Authorization: Bearer $MKTR_MEDIA_GATEWAY_TOKEN`. The latter endpoint classifies the transcript, selects the matching flow route, and plays the matching clip. The flow editor, validation, caller-ID policy, five-call guard, and event contract are in place for that worker.
 
 ## Singtel values in this workspace
 

@@ -1,148 +1,132 @@
 import { randomUUID } from "node:crypto";
-import net from "node:net";
+import { EventEmitter } from "node:events";
+import { EslClient, EslCommandError, type EslEvent } from "./esl.js";
 import type { CallerId, Clip, TelephonyMode, TestCallInput, TrunkStatus } from "../src/lib/domain.js";
 import { CALLER_IDS, RESERVED_CALLER_ID } from "../src/lib/domain.js";
 import { config, isProductionGatewayConfigured } from "./config.js";
 
-export type TelephonyCall = {
+export type TelephonyCall = { providerCallId: string };
+export type TelephonyEvent = {
+  type: "dialing" | "ringing" | "answered" | "hangup" | "playbackStopped" | "originateFailed";
   providerCallId: string;
+  cause?: string;
+  playbackId?: string;
 };
-
 export interface TelephonyAdapter {
   readonly mode: TelephonyMode;
   readonly configured: boolean;
-  originate(input: Pick<TestCallInput, "destination" | "callerId">): Promise<TelephonyCall>;
-  playClip(providerCallId: string, clip: Clip): Promise<void>;
+  originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId?: string): Promise<TelephonyCall>;
+  playClip(providerCallId: string, clip: Clip, playbackId?: string): Promise<void>;
   hangup(providerCallId: string): Promise<void>;
+  onEvent?(listener: (event: TelephonyEvent) => void): () => void;
+  close?(): void | Promise<void>;
 }
 
 export class SimulatedTelephonyAdapter implements TelephonyAdapter {
   readonly mode = "simulated" as const;
   readonly configured = true;
-
-  async originate(): Promise<TelephonyCall> {
-    return { providerCallId: `sim-${randomUUID()}` };
+  async originate(_input?: Pick<TestCallInput, "destination" | "callerId">, providerCallId = randomUUID()): Promise<TelephonyCall> {
+    return { providerCallId };
   }
-
-  async hangup(): Promise<void> {
-    return;
-  }
-
-  async playClip(): Promise<void> {
-    return;
-  }
+  async hangup(): Promise<void> { return; }
+  async playClip(): Promise<void> { return; }
 }
 
-/**
- * Minimal Event Socket Layer client. FreeSWITCH owns the TLS/SRTP SIP leg;
- * this adapter only sends internal originate and hangup commands to it.
- */
 export class FreeSwitchEslAdapter implements TelephonyAdapter {
   readonly mode = "freeswitch" as const;
-  readonly configured = isProductionGatewayConfigured();
+  private readonly events = new EventEmitter();
+  private readonly jobs = new Map<string, string>();
+  private readonly earlyJobs = new Map<string, EslEvent>();
+  private readonly seenEvents = new Set<string>();
+  private readonly unsubscribe: () => void;
 
-  async originate(input: Pick<TestCallInput, "destination" | "callerId">): Promise<TelephonyCall> {
-    if (!this.configured) {
-      throw new Error("FreeSWITCH mode requires SIP and ESL passwords in the deployment secret store.");
-    }
-    const providerCallId = randomUUID();
-    const dial = `sofia/gateway/singtel/${input.destination}`;
+  constructor(
+    readonly client = new EslClient(config.freeswitch),
+    readonly configured = isProductionGatewayConfigured()
+  ) { this.unsubscribe = client.onEvent((event) => this.receive(event)); }
+
+  onEvent(listener: (event: TelephonyEvent) => void): () => void {
+    this.events.on("event", listener);
+    return () => this.events.off("event", listener);
+  }
+
+  async originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId = randomUUID()): Promise<TelephonyCall> {
+    if (!this.configured) throw new Error("FreeSWITCH mode requires complete gateway credentials and configuration.");
+    assertAllowedCallerId(input.callerId);
+    if (!/^\+[1-9]\d{7,14}$/.test(input.destination)) throw new Error("Destination must use E.164 format.");
+    this.assertUuid(providerCallId);
     const variables = [
       `origination_uuid=${providerCallId}`,
       `origination_caller_id_number=${input.callerId}`,
-      "origination_caller_id_name=MKTR",
-      "absolute_codec_string=PCMA",
-      "rtp_secure_media=true",
-      "hangup_after_bridge=true"
+      "origination_caller_id_name=MKTR", "absolute_codec_string=PCMA",
+      "rtp_secure_media=true", "hangup_after_bridge=true"
     ].join(",");
-    await this.command(`bgapi originate {${variables}}${dial} &park()`);
+    const frame = await this.client.command(`bgapi originate {${variables}}sofia/gateway/singtel/${input.destination} &park()`);
+    const jobId = frame.headers["job-uuid"] ?? frame.headers["reply-text"]?.match(/Job-UUID:\s*(\S+)/)?.[1];
+    if (!jobId) throw new Error("FreeSWITCH accepted originate without a Job-UUID; channel outcome is unknown.");
+    this.jobs.set(jobId, providerCallId);
+    this.emit({ type: "dialing", providerCallId });
+    const early = this.earlyJobs.get(jobId);
+    if (early) { this.earlyJobs.delete(jobId); this.jobResult(early); }
     return { providerCallId };
   }
 
   async hangup(providerCallId: string): Promise<void> {
-    if (!this.configured) return;
-    await this.command(`api uuid_kill ${providerCallId}`);
+    this.assertUuid(providerCallId);
+    try { await this.client.command(`api uuid_kill ${providerCallId} NORMAL_CLEARING`); }
+    catch (error) {
+      // A remote hangup can win the race with this idempotent termination request.
+      if (!(error instanceof EslCommandError) || !/No such channel|invalid uuid/i.test(error.reply)) throw error;
+    }
   }
 
-  async playClip(providerCallId: string, clip: Clip): Promise<void> {
-    if (!this.configured) return;
-    if (!clip.assetUrl) {
-      throw new Error(`Live playback requires an uploaded file for ${clip.name}.`);
-    }
+  async playClip(providerCallId: string, clip: Clip, playbackId = randomUUID()): Promise<void> {
+    this.assertUuid(providerCallId);
+    this.assertUuid(playbackId);
+    if (!clip.assetUrl) throw new Error(`Live playback requires an uploaded file for ${clip.name}.`);
     const filename = clip.assetUrl.split("/").at(-1);
-    if (!filename || !/^[a-f0-9-]+\.(wav|mp3)$/i.test(filename)) {
-      throw new Error("Clip media path is invalid.");
-    }
-    const mediaPath = `${config.freeswitch.mediaDirectory}/${filename}`;
-    await this.command(`api uuid_broadcast ${providerCallId} ${mediaPath} aleg`);
+    if (!filename || !/^[a-f0-9-]+\.(wav|mp3)$/i.test(filename)) throw new Error("Clip media path is invalid.");
+    if (!/^\/[a-zA-Z0-9/_-]+$/.test(config.freeswitch.mediaDirectory)) throw new Error("FreeSWITCH media directory is invalid.");
+    await this.client.command(`api uuid_setvar ${providerCallId} mktr_playback_id ${playbackId}`);
+    await this.client.command(`api uuid_broadcast ${providerCallId} ${config.freeswitch.mediaDirectory}/${filename} aleg`);
   }
 
-  private async command(command: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const socket = net.createConnection({ host: config.freeswitch.host, port: config.freeswitch.port });
-      let buffer = "";
-      let stage: "auth-request" | "auth-reply" | "command-reply" = "auth-request";
-      let settled = false;
-      const finish = (error?: Error, response?: string) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        socket.end();
-        if (error) reject(error);
-        else resolve(response ?? "");
-      };
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        finish(new Error("Timed out while connecting to FreeSWITCH ESL."));
-      }, 5000);
+  close(): void { this.unsubscribe(); this.client.close(); }
 
-      socket.setEncoding("utf8");
-      socket.on("data", (chunk: string) => {
-        buffer += chunk;
-        while (true) {
-          const separator = buffer.indexOf("\n\n");
-          if (separator === -1) return;
-          const headerBlock = buffer.slice(0, separator);
-          const contentLength = Number.parseInt(
-            headerBlock.match(/^Content-Length:\s*(\d+)\s*$/im)?.[1] ?? "0",
-            10
-          );
-          const frameLength = separator + 2 + contentLength;
-          if (buffer.length < frameLength) return;
-          const frame = buffer.slice(0, frameLength);
-          buffer = buffer.slice(frameLength);
-
-          if (stage === "auth-request") {
-            if (!/Content-Type:\s*auth\/request/i.test(headerBlock)) {
-              finish(new Error(`FreeSWITCH did not request ESL authentication: ${headerBlock}`));
-              return;
-            }
-            stage = "auth-reply";
-            socket.write(`auth ${config.freeswitch.password}\n\n`);
-            continue;
-          }
-
-          if (/Reply-Text:\s*-ERR/i.test(headerBlock) || /-ERR\b/.test(frame)) {
-            finish(new Error(`FreeSWITCH command failed: ${frame.trim()}`));
-            return;
-          }
-          if (stage === "auth-reply") {
-            if (!/Reply-Text:\s*\+OK/i.test(headerBlock)) {
-              finish(new Error(`FreeSWITCH authentication failed: ${frame.trim()}`));
-              return;
-            }
-            stage = "command-reply";
-            socket.write(`${command}\n\n`);
-            continue;
-          }
-          finish(undefined, frame);
-          return;
-        }
-      });
-      socket.on("error", (error) => {
-        finish(error);
-      });
-    });
+  private emit(event: TelephonyEvent): void { this.events.emit("event", event); }
+  private assertUuid(uuid: string): void {
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid)) throw new Error("Invalid provider call UUID.");
+  }
+  private jobResult(event: EslEvent): void {
+    const job = event.headers["job-uuid"];
+    const providerCallId = this.jobs.get(job);
+    if (!providerCallId) {
+      if (this.earlyJobs.size >= 128) this.earlyJobs.delete(this.earlyJobs.keys().next().value!);
+      this.earlyJobs.set(job, event);
+      return;
+    }
+    this.jobs.delete(job);
+    const result = event.body.trim();
+    this.emit(result.startsWith("+OK")
+      ? { type: "ringing", providerCallId }
+      : { type: "originateFailed", providerCallId, cause: result.replace(/^-ERR\s*/, "") || "ORIGINATE_FAILED" });
+  }
+  private receive(event: EslEvent): void {
+    const sequence = event.headers["event-sequence"];
+    if (sequence) {
+      const key = `${event.headers["core-uuid"]}:${sequence}`;
+      if (this.seenEvents.has(key)) return;
+      if (this.seenEvents.size >= 2048) this.seenEvents.delete(this.seenEvents.values().next().value!);
+      this.seenEvents.add(key);
+    }
+    if (event.name === "BACKGROUND_JOB") { this.jobResult(event); return; }
+    const providerCallId = event.headers["unique-id"] ?? event.headers["variable_origination_uuid"];
+    if (!providerCallId) return;
+    if (event.name === "CHANNEL_CREATE") this.emit({ type: "dialing", providerCallId });
+    if (event.name === "CHANNEL_PROGRESS") this.emit({ type: "ringing", providerCallId });
+    if (event.name === "CHANNEL_ANSWER") this.emit({ type: "answered", providerCallId });
+    if (event.name === "CHANNEL_HANGUP_COMPLETE") this.emit({ type: "hangup", providerCallId, cause: event.headers["hangup-cause"] ?? "NORMAL_CLEARING" });
+    if (event.name === "PLAYBACK_STOP") this.emit({ type: "playbackStopped", providerCallId, playbackId: event.headers["variable_mktr_playback_id"] });
   }
 }
 
