@@ -41,18 +41,35 @@ model Flow {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   publishedAt DateTime?
+  deletedAt   DateTime?
+  versions    FlowVersion[]
   calls       Call[]
 
   @@index([status, updatedAt])
 }
 
+model FlowVersion {
+  flowId      String
+  version     Int
+  graph       Json
+  publishedAt DateTime @default(now())
+  flow        Flow     @relation(fields: [flowId], references: [id])
+  calls       Call[]
+
+  @@id([flowId, version])
+}
+
 model Clip {
   id               String     @id
   name             String
-  durationSeconds  Int
+  durationSeconds  Float
   format           String
   status           ClipStatus @default(processing)
   assetUrl         String?
+  previewUrl       String?
+  telephonyAssetUrl String?
+  color            String     @default("teal")
+  snapshot         Json
   originalFilename String?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -70,9 +87,12 @@ model Call {
   status         CallStatus
   endReason      String?
   classifier     Json?
+  currentNodeId  String?
+  snapshot       Json
   createdAt      DateTime   @default(now())
   endedAt        DateTime?
   flow           Flow       @relation(fields: [flowId], references: [id])
+  graphVersion   FlowVersion @relation(fields: [flowId, flowVersion], references: [flowId, version])
   events         CallEvent[]
 
   @@index([createdAt])
@@ -91,4 +111,31 @@ model CallEvent {
   call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
 
   @@index([callId, timestamp])
+}
+
+
+enum UserRole {
+  admin
+  operator
+}
+
+model User {
+  id           String    @id
+  email        String    @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  tokenHash String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }

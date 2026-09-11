@@ -75,8 +75,8 @@ Verify: Every command in the runbook has been run in dry form (no credentials) b
 ## Tier B. Before running it as a service
 
 ### B1. Durable store on Postgres
-Status: todo
-Evidence: 2026-09-11 disposable simulator restart probe: an edited flow and call both return 404 after restart; the clip record disappears while its orphan file still serves 200; the version-graph endpoint returns 404. Runtime constructs `InMemoryStore` (`server/index.ts:14`); Prisma client/migrations, FlowVersion/User/Session, runtime Store abstraction, and boot recovery are absent. `npm run test:db` exits 1 with Missing script. Full database verification additionally needs Docker/Compose with the test Postgres after implementation.
+Status: done
+Evidence: `npm run test:db:local` invokes the real PrismaStore suite against disposable PostgreSQL 17: 5/5 pass, including authenticated API restart/session/flow/clip persistence, exact version graphs, transactional write failure and orphan sweep. Orchestrator awaits durability before provider effects/SSE; the delayed-disk concurrency test proves five reservations and zero premature originates. Build and 11 Chromium tests pass. Default `npm run test:db` Compose Verify blocked: Docker not installed on host; the same suite passes using installed native Postgres under the task's Docker exception.
 Why: The store is in memory. Prisma is not installed, no migrations exist, and `DATABASE_URL` is injected but never read. A restart loses every flow, clip record, and call.
 Done when: `@prisma/client` and migrations exist for the schema plus a `FlowVersion` table holding each published graph immutably and `User` and `Session` tables for A7. A `Store` interface has `InMemoryStore` for tests and `PrismaStore` for runtime. The api runs `prisma migrate deploy` on start. Clip records and files stay consistent with an orphan sweep on boot. Active-call snapshots rebuild from the database after restart.
 Verify: `npm run test:db` runs the `PrismaStore` suite against the compose Postgres. A flow edited before an api restart is still there after it. `GET /api/flows/:id/versions/:v` returns the exact graph a call ran.

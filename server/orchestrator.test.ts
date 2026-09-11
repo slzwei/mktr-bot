@@ -152,6 +152,7 @@ test("continues through a second listen and decision drawn in the flow", async (
 test("a flow error hangs up once and a failed hangup retains the trunk slot for retry", async () => {
   const store = new InMemoryStore();
   const flow = store.getFlow(validInput.flowId)!;
+  flow.version += 1;
   flow.edges = [];
   store.saveFlow(flow);
   let hangups = 0;
@@ -175,6 +176,7 @@ test("a flow error hangs up once and a failed hangup retains the trunk slot for 
 test("a flow with no route terminates its provider channel", async () => {
   const store = new InMemoryStore();
   const flow = store.getFlow(validInput.flowId)!;
+  flow.version += 1;
   flow.edges = [];
   store.saveFlow(flow);
   let hangups = 0;

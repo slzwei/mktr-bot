@@ -1,15 +1,14 @@
 import { createApp } from "./app.js";
-import { InMemoryAuthStore, seedAdmin } from "./auth.js";
+import { seedAdmin } from "./auth.js";
 import { config } from "./config.js";
 import { createTranscriptClassifier } from "./classifier.js";
 import { logger } from "./logger.js";
 import { CallOrchestrator } from "./orchestrator.js";
-import { InMemoryStore } from "./store.js";
+import { initializeStore } from "./runtime-store.js";
 import { createTelephonyAdapter } from "./telephony.js";
 import { installShutdown } from "./shutdown.js";
 
-const store = new InMemoryStore();
-const authStore = new InMemoryAuthStore();
+const { store, authStore } = await initializeStore();
 await seedAdmin(authStore);
 const adapter = createTelephonyAdapter();
 const classifier = createTranscriptClassifier();
@@ -17,4 +16,4 @@ const calls = new CallOrchestrator(store, adapter, classifier);
 await calls.initialize();
 const { app, closeSseStreams } = createApp({ store, adapter, classifier, calls, authStore });
 const server = app.listen(config.port, () => logger.info({ port: config.port, mode: adapter.mode }, "MKTR Voice API listening"));
-installShutdown({ server, calls, closeSseStreams, logger });
+installShutdown({ server, calls, closeSseStreams, closeStore: () => store.close(), logger });

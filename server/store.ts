@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { CallSession, Clip, FlowDefinition, FlowNode } from "../src/lib/domain.js";
 
 const now = () => new Date().toISOString();
@@ -185,101 +186,144 @@ const initialFlow: FlowDefinition = {
 
 const clone = <T>(value: T): T => structuredClone(value);
 
-export class InMemoryStore {
-  private readonly flows = new Map<string, FlowDefinition>([[initialFlow.id, initialFlow]]);
-  private readonly clips = new Map<string, Clip>(clips.map((clip) => [clip.id, clip]));
-  private readonly calls = new Map<string, CallSession>();
+export type ClipAsset = Pick<Clip, "assetUrl" | "originalFilename" | "format" | "previewUrl"> & { telephonyAssetUrl?: string };
 
-  listFlows(): FlowDefinition[] {
-    return Array.from(this.flows.values()).map(clone);
+export type StoreSnapshot = {
+  flows: FlowDefinition[];
+  versions: FlowDefinition[];
+  clips: Clip[];
+  calls: CallSession[];
+};
+
+/** Mutations update the process cache immediately. Await flush before acknowledging
+ * writes or creating provider side effects. A failed durable write closes this gate. */
+export interface Store {
+  listFlows(): FlowDefinition[];
+  getFlow(id: string): FlowDefinition | undefined;
+  getFlowVersion(id: string, version: number): FlowDefinition | undefined;
+  listFlowVersions(id?: string): FlowDefinition[];
+  saveFlow(flow: FlowDefinition): FlowDefinition;
+  createDraft(name: string): FlowDefinition;
+  deleteFlow(id: string): FlowDefinition | undefined;
+  listClips(): Clip[];
+  getClip(id: string): Clip | undefined;
+  createClip(name: string, durationSeconds: number, asset?: ClipAsset): Clip;
+  saveClip(clip: Clip): Clip;
+  isClipReferencedByPublishedVersion(id: string): boolean;
+  deleteClip(id: string): Clip | undefined;
+  saveCall(session: CallSession): CallSession;
+  getCall(id: string): CallSession | undefined;
+  listCalls(): CallSession[];
+  flush(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export class InMemoryStore implements Store {
+  protected readonly flows = new Map<string, FlowDefinition>();
+  protected readonly versions = new Map<string, FlowDefinition>();
+  protected readonly clips = new Map<string, Clip>();
+  protected readonly calls = new Map<string, CallSession>();
+
+  constructor(snapshot?: StoreSnapshot) {
+    const initial = snapshot ?? { flows: [initialFlow], versions: [initialFlow], clips, calls: [] };
+    initial.flows.forEach((flow) => this.flows.set(flow.id, clone(flow)));
+    initial.versions.forEach((flow) => this.versions.set(this.versionKey(flow.id, flow.version), clone(flow)));
+    initial.clips.forEach((clip) => this.clips.set(clip.id, clone(clip)));
+    initial.calls.forEach((call) => this.calls.set(call.id, clone(call)));
+    this.refreshClipUsage();
   }
 
-  getFlow(id: string): FlowDefinition | undefined {
-    const flow = this.flows.get(id);
+  listFlows(): FlowDefinition[] { return [...this.flows.values()].map(clone); }
+  getFlow(id: string): FlowDefinition | undefined { const flow = this.flows.get(id); return flow ? clone(flow) : undefined; }
+  getFlowVersion(id: string, version: number): FlowDefinition | undefined {
+    const flow = this.versions.get(this.versionKey(id, version));
     return flow ? clone(flow) : undefined;
   }
-
+  listFlowVersions(id?: string): FlowDefinition[] {
+    return [...this.versions.values()].filter((flow) => id === undefined || flow.id === id).sort((a, b) => a.version - b.version).map(clone);
+  }
   saveFlow(flow: FlowDefinition): FlowDefinition {
+    this.assertWritable();
+    const previous = this.getFlowVersion(flow.id, flow.version);
+    if (flow.status === "published" && previous) {
+      const graph = (value: FlowDefinition) => ({ ...value, updatedAt: undefined });
+      if (!isDeepStrictEqual(graph(previous), graph(flow))) throw new Error("Published flow versions are immutable. Save a draft and publish a new version.");
+      return previous;
+    }
+    if (flow.status === "published" && (!Number.isInteger(flow.version) || flow.version < 1)) throw new Error("Published flow versions must be positive integers.");
     const saved = { ...clone(flow), updatedAt: now() };
     this.flows.set(saved.id, saved);
+    if (saved.status === "published") this.versions.set(this.versionKey(saved.id, saved.version), clone(saved));
     this.refreshClipUsage();
+    this.writeFlow(saved);
     return clone(saved);
   }
-
   createDraft(name: string): FlowDefinition {
     const source = this.getFlow(initialFlow.id) ?? clone(initialFlow);
-    const draft: FlowDefinition = {
-      ...source,
-      id: randomUUID(),
-      name,
-      // A draft has no published revision yet. The first publish creates v1.
-      version: 0,
-      status: "draft",
-      nodes: source.nodes.map((node) => ({ ...node, position: { ...node.position } })),
-      edges: source.edges.map((edge) => ({ ...edge, condition: edge.condition ? { ...edge.condition } : undefined })),
-      updatedAt: now()
-    };
-    this.flows.set(draft.id, draft);
+    return this.saveFlow({ ...source, id: randomUUID(), name, version: 0, status: "draft", updatedAt: now() });
+  }
+  deleteFlow(id: string): FlowDefinition | undefined {
+    this.assertWritable();
+    const previous = this.getFlow(id);
+    if (!previous) return undefined;
+    this.flows.delete(id);
     this.refreshClipUsage();
-    return clone(draft);
+    this.writeFlowDeletion(id);
+    return previous;
   }
-
-  listClips(): Clip[] {
-    return Array.from(this.clips.values()).map(clone);
+  isClipReferencedByPublishedVersion(id: string): boolean {
+    return [...this.versions.values()].some((flow) => flow.nodes.some((node) => node.data.clipId === id));
   }
-
-  getClip(id: string): Clip | undefined {
-    const clip = this.clips.get(id);
-    return clip ? clone(clip) : undefined;
+  deleteClip(id: string): Clip | undefined {
+    this.assertWritable();
+    if (this.isClipReferencedByPublishedVersion(id)) throw new Error("Archive clips referenced by a published flow version; historical media cannot be deleted.");
+    const previous = this.getClip(id);
+    if (!previous) return undefined;
+    this.clips.delete(id);
+    this.writeClipDeletion(id);
+    return previous;
   }
-
-  createClip(
-    name: string,
-    durationSeconds: number,
-    asset?: Pick<Clip, "assetUrl" | "originalFilename" | "format">
-  ): Clip {
+  listClips(): Clip[] { return [...this.clips.values()].map(clone); }
+  getClip(id: string): Clip | undefined { const clip = this.clips.get(id); return clip ? clone(clip) : undefined; }
+  createClip(name: string, durationSeconds: number, asset?: ClipAsset): Clip {
     const colors: Clip["color"][] = ["teal", "orange", "blue", "rose"];
-    const clip: Clip = {
-      id: randomUUID(),
-      name,
-      durationSeconds,
-      format: asset?.format ?? "wav",
-      status: "ready",
-      assetUrl: asset?.assetUrl,
-      originalFilename: asset?.originalFilename,
-      usedBy: 0,
-      updatedAt: now(),
-      color: colors[this.clips.size % colors.length]
-    };
-    this.clips.set(clip.id, clip);
-    return clone(clip);
+    return this.saveClip({
+      id: randomUUID(), name, durationSeconds, format: asset?.format ?? "wav", status: "ready",
+      ...asset, usedBy: 0,
+      updatedAt: now(), color: colors[this.clips.size % colors.length]
+    });
   }
-
+  saveClip(clip: Clip): Clip {
+    this.assertWritable();
+    const saved = { ...clone(clip), updatedAt: now() };
+    this.clips.set(saved.id, saved);
+    this.refreshClipUsage();
+    this.writeClip(saved);
+    return clone(saved);
+  }
   saveCall(session: CallSession): CallSession {
+    this.assertWritable();
+    if (!this.getFlowVersion(session.flowId, session.flowVersion)) throw new Error("Call snapshot requires an existing immutable published flow version.");
     this.calls.set(session.id, clone(session));
+    this.writeCall(clone(session));
     return clone(session);
   }
-
-  getCall(id: string): CallSession | undefined {
-    const call = this.calls.get(id);
-    return call ? clone(call) : undefined;
-  }
-
-  listCalls(): CallSession[] {
-    return Array.from(this.calls.values())
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map(clone);
-  }
-
-  private refreshClipUsage() {
+  getCall(id: string): CallSession | undefined { const call = this.calls.get(id); return call ? clone(call) : undefined; }
+  listCalls(): CallSession[] { return [...this.calls.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(clone); }
+  async flush(): Promise<void> { return; }
+  async close(): Promise<void> { return; }
+  protected assertWritable(): void { return; }
+  protected writeFlowDeletion(_id: string): void { return; }
+  protected writeClipDeletion(_id: string): void { return; }
+  protected writeFlow(_flow: FlowDefinition): void { return; }
+  protected writeClip(_clip: Clip): void { return; }
+  protected writeCall(_session: CallSession): void { return; }
+  protected versionKey(id: string, version: number): string { return `${id}:${version}`; }
+  protected refreshClipUsage(): void {
     const usage = new Map<string, number>();
-    this.flows.forEach((flow) => {
-      flow.nodes.forEach((node) => {
-        if (node.data.clipId) usage.set(node.data.clipId, (usage.get(node.data.clipId) ?? 0) + 1);
-      });
-    });
-    this.clips.forEach((clip) => {
-      clip.usedBy = usage.get(clip.id) ?? 0;
-    });
+    this.flows.forEach((flow) => flow.nodes.forEach((node) => {
+      if (node.data.clipId) usage.set(node.data.clipId, (usage.get(node.data.clipId) ?? 0) + 1);
+    }));
+    this.clips.forEach((clip) => { clip.usedBy = usage.get(clip.id) ?? 0; });
   }
 }

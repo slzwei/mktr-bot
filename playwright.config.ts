@@ -27,6 +27,7 @@ export default defineConfig({
       url: `http://127.0.0.1:${apiPort}/api/health`,
       env: {
         PORT: apiPort,
+        MKTR_STORE: "memory",
         MKTR_WEB_ORIGIN: webOrigin,
         MKTR_ADMIN_EMAIL: process.env.MKTR_E2E_ADMIN_EMAIL,
         MKTR_ADMIN_PASSWORD: process.env.MKTR_E2E_ADMIN_PASSWORD,

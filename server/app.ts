@@ -13,14 +13,12 @@ import type { TranscriptClassifier } from "./classifier.js";
 import { validateFlow } from "./flow-validation.js";
 import { logger as defaultLogger } from "./logger.js";
 import type { CallOrchestrator } from "./orchestrator.js";
-import type { InMemoryStore } from "./store.js";
+import type { Store } from "./store.js";
 import { getTrunkStatus, type TelephonyAdapter } from "./telephony.js";
 import { clipUpload, ensureClipStorage, uploadedClipAssetUrl } from "./uploads.js";
 
-type StoreMethods = Pick<InMemoryStore, "listFlows" | "getFlow" | "saveFlow" | "createDraft" | "listClips" | "createClip" | "listCalls">;
-type ApplicationStore = { [K in keyof StoreMethods]: (...args: Parameters<StoreMethods[K]>) => ReturnType<StoreMethods[K]> | Promise<ReturnType<StoreMethods[K]>> };
 export type AppDependencies = {
-  store: ApplicationStore;
+  store: Store;
   adapter: TelephonyAdapter;
   classifier: TranscriptClassifier;
   calls: Pick<CallOrchestrator, "activeCallCount" | "start" | "get" | "stop" | "markAnswered" | "submitTranscript" | "subscribe"> & Partial<Pick<CallOrchestrator, "mediaError">>;
@@ -104,9 +102,17 @@ export function createApp(dependencies: AppDependencies) {
     if (!flow) return response.status(404).json({ error: "Flow not found." });
     return response.json(flow);
   });
+  app.get("/api/flows/:id/versions/:version", (request, response) => {
+    const version = z.coerce.number().int().positive().parse(request.params.version);
+    const flow = store.getFlowVersion(request.params.id, version);
+    if (!flow) return response.status(404).json({ error: "Published flow version not found." });
+    return response.json(flow);
+  });
   app.post("/api/flows", async (request, response) => {
     const body = z.object({ name: z.string().trim().min(1).max(80) }).strict().parse(request.body);
-    return response.status(201).json(await store.createDraft(body.name));
+    const draft = store.createDraft(body.name);
+    await store.flush();
+    return response.status(201).json(draft);
   });
   app.put("/api/flows/:id", async (request, response) => {
     const existing = await store.getFlow(request.params.id);
@@ -115,7 +121,9 @@ export function createApp(dependencies: AppDependencies) {
     if (!flow || flow.id !== existing.id || !Array.isArray(flow.nodes) || !Array.isArray(flow.edges)) {
       return response.status(400).json({ error: "Invalid flow payload." });
     }
-    return response.json(await store.saveFlow({ ...flow, status: "draft", version: existing.version }));
+    const draft = store.saveFlow({ ...flow, status: "draft", version: existing.version });
+    await store.flush();
+    return response.json(draft);
   });
   app.post("/api/flows/:id/publish", async (request, response) => {
     z.object({}).strict().parse(request.body ?? {});
@@ -124,17 +132,22 @@ export function createApp(dependencies: AppDependencies) {
     const validation = validateFlow(flow, await store.listClips());
     if (!validation.valid) return response.status(422).json(validation);
     const published = await store.saveFlow({ ...flow, status: "published", version: Math.max(1, flow.version + 1) });
+    await store.flush();
     return response.json({ flow: published, validation });
   });
   app.post("/api/clips", async (request, response) => {
     const body = z.object({ name: z.string().trim().min(1).max(80), durationSeconds: z.number().int().min(1).max(180) }).strict().parse(request.body);
-    return response.status(201).json(await store.createClip(body.name, body.durationSeconds));
+    const clip = store.createClip(body.name, body.durationSeconds);
+    await store.flush();
+    return response.status(201).json(clip);
   });
   app.post("/api/clips/upload", clipUpload.single("file"), async (request, response) => {
     const body = z.object({ name: z.string().trim().min(1).max(80), durationSeconds: z.coerce.number().int().min(1).max(180) }).strict().parse(request.body);
     if (!request.file) return response.status(400).json({ error: "Select a WAV or MP3 file." });
     const extension = request.file.filename.toLowerCase().endsWith(".mp3") ? "mp3" : "wav";
-    return response.status(201).json(await store.createClip(body.name, body.durationSeconds, { format: extension, originalFilename: request.file.originalname, assetUrl: uploadedClipAssetUrl(request.file.filename) }));
+    const clip = store.createClip(body.name, body.durationSeconds, { format: extension, originalFilename: request.file.originalname, assetUrl: uploadedClipAssetUrl(request.file.filename) });
+    await store.flush();
+    return response.status(201).json(clip);
   });
   app.post("/api/classify", async (request, response) => {
     const body = z.object({ transcript: z.string().trim().min(1).max(2_000) }).strict().parse(request.body);
@@ -142,7 +155,9 @@ export function createApp(dependencies: AppDependencies) {
   });
   app.post("/api/calls", rateLimit({ windowMs: 60_000, limit: dependencies.callRateLimit ?? 10, standardHeaders: "draft-7", legacyHeaders: false, message: { error: "Call start rate exceeded. Try again in one minute." }, keyGenerator: (_request, response) => response.locals.operator.id as string }), async (request, response) => {
     const input = z.object({ destination: z.string(), callerId: z.enum(CALLER_IDS), flowId: z.string(), scenario: z.enum(["interested", "not_interested", "callback", "uncertain"]).optional() }).strict().parse(request.body) as TestCallInput;
-    response.status(201).json(await calls.start(input));
+    const call = await calls.start(input);
+    await store.flush();
+    response.status(201).json(call);
   });
   app.get("/api/calls/:id", async (request, response) => {
     const call = await calls.get(request.params.id);
@@ -151,7 +166,9 @@ export function createApp(dependencies: AppDependencies) {
   });
   app.post("/api/calls/:id/end", async (request, response) => {
     z.object({}).strict().parse(request.body ?? {});
-    response.json(await calls.stop(request.params.id));
+    const call = await calls.stop(request.params.id);
+    await store.flush();
+    response.json(call);
   });
   app.get("/api/calls/:id/events", async (request, response) => {
     const call = await calls.get(request.params.id);

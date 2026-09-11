@@ -7,16 +7,21 @@
     "dev": "concurrently -n api,web -c cyan,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite",
-    "build": "tsc --noEmit && tsc -p tsconfig.server.json && vite build",
+    "build": "prisma generate && tsc --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node .server-dist/server/index.js",
     "test": "tsx --test server/**/*.test.ts",
     "test:media": "tsx --test media-worker/*.test.ts",
     "test:e2e": "playwright test",
     "lint": "tsc --noEmit",
     "render:freeswitch": "tsx scripts/render-freeswitch.ts",
-    "test:freeswitch": "tsx --test server/freeswitch-config.test.ts"
+    "test:freeswitch": "tsx --test server/freeswitch-config.test.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "test:db": "tsx scripts/test-db.ts",
+    "test:db:local": "tsx scripts/test-db-local.ts"
   },
   "dependencies": {
+    "@prisma/client": "6.19.3",
     "@types/multer": "^2.2.0",
     "@xyflow/react": "^12.4.4",
     "argon2": "^0.45.1",
@@ -28,6 +33,7 @@
     "multer": "^2.3.0",
     "openai": "^7.15.0",
     "pino": "^10.3.1",
+    "prisma": "6.19.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "ws": "^8.21.3",
@@ -49,5 +55,8 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2"
   }
 }

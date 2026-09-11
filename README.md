@@ -9,14 +9,14 @@ The application is safe by default. It runs in simulator mode, uses only the app
 ```bash
 npm install
 cp .env.example .env
-npm run dev
+MKTR_STORE=memory npm run dev
 ```
 
 Set `MKTR_ADMIN_EMAIL` and a randomly generated `MKTR_ADMIN_PASSWORD` of at least 16 characters in your local shell environment before starting the API. There are no shared default credentials. Set `MKTR_WEB_ORIGIN` to the exact web origin (local default `http://localhost:5173`). The API reads process environment variables; use your shell's secret loading mechanism for the ignored `.env` file.
 
 Open <http://localhost:5173> and sign in. The API is available at <http://localhost:8787/api/health>. Start a test call from a published flow and choose one of the simulated response outcomes to inspect routing, transcript, sentiment, confidence, and branch latency.
 
-Uploaded clips are stored under `storage/clips` and are intentionally ignored by Git. The local store is in memory so a restart resets demo flows, clips, and call history.
+Uploaded clips are stored under `storage/clips` and are intentionally ignored by Git. The explicit local `MKTR_STORE=memory` option resets demo flows, clips, calls and sessions on restart. The default runtime uses Postgres through Prisma with `DATABASE_URL`, applies migrations at startup, preserves immutable published flow versions and restores call snapshots; see [durable store operations](docs/store.md).
 
 In **Audio clips**, drop one WAV or MP3 anywhere in the library, or use the file chooser, then select **Upload clip**. The name and duration are filled from the file and can be edited. Files must be 10 MB or smaller and up to 180 seconds long. Preview recordings in the library or in a selected clip node's settings; starting another preview pauses the previous one.
 
@@ -30,6 +30,8 @@ Use the node palette or drag a node onto the canvas. Select a node to edit its l
 
 ```bash
 npm test
+npm run test:db # isolated Compose Postgres
+# npm run test:db:local # existing native Postgres tools
 npm run build
 npx playwright install chromium
 npm run test:e2e
@@ -55,7 +57,7 @@ The Compose file provisions the intended production dependencies: API, Postgres,
 docker compose up --build
 ```
 
-This starts the API in simulator mode. Postgres and Redis are provisioned for the durable store and event bus migration; the current demo runtime uses the in-memory store so it can be run without migrations.
+This starts the API in simulator mode. Postgres holds flows, immutable published graphs, clips, calls, events, users and sessions. The API applies committed Prisma migrations before listening and reconciles uploaded files at boot. Redis is reserved for later multi-process coordination; the supported deployment has one API process.
 
 ## Preparing the SIP gateway
 
