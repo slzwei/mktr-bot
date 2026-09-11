@@ -16,3 +16,9 @@ runtime/
 telephony/freeswitch/certs/*
 !telephony/freeswitch/certs/.gitkeep
 !telephony/freeswitch/certs/README.md
+.env.*
+!.env.example
+backups/
+*.dump
+*.sql.gz
+*.incomplete/

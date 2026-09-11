@@ -111,11 +111,12 @@ Done when: The server sends a comment ping every 15 s and an `id:` per event. Th
 Verify: An e2e test restarts the api mid-call and confirms the console recovers. Two browser contexts show the same active count.
 
 ### B6. Delivery hygiene
-Status: todo
-Evidence: 2026-09-11 baseline initialized on main as `5569e38`; `npm run build`, `npm test` (4/4), and `npm run test:e2e` (10/10 Chromium) pass. CI/remote, Node engine pin, backups/restore drill, and required auth/ESL/upload/validation unit coverage are absent; Dockerfile has no USER/HEALTHCHECK, runs npm (line 24), and includes compiled tests; compose hard-codes the database password (line 40). CI, container UID, and restore verification cannot pass without implementation, a CI remote/default-branch run, and Docker/Compose, which is absent here.
+Status: blocked
+Evidence: 2026-09-11 implementation complete: `npm run build`, 20 behavioural unit tests via `npm run test:coverage` (84.95% lines on this worktree), and `npm run test:backup` pass with real PostgreSQL 17.10 row/clip restoration plus nonempty-target/checksum rejection; `.github/workflows/ci.yml`, non-root direct-Node Dockerfile and `docs/backups.md` exist. Verification blockers: no GitHub remote/default-branch CI run is configured; Docker-dependent container UID/build/compose verification is blocked: Docker not installed on host. Main A2 supplies fake ESL/parser coverage.
 Why: No git repo, no CI, a root container with npm as PID 1, a default Postgres password, no backups, and thin unit coverage.
 Done when: The folder is a git repo with CI running typecheck, unit, e2e on Chromium, and `docker build`. `engines.node` is pinned. The Dockerfile uses a non-root user, a `HEALTHCHECK`, `CMD ["node", ...]`, and excludes test files. The Postgres password comes from env. `scripts/backup.sh` backs up the database and clip volume with a documented restore. Unit tests cover flow validation, route selection, uploads, the ESL frame parser, and auth middleware.
 Verify: CI is green on the default branch. `docker run --rm <image> id -u` is not 0. The restore drill is documented and has been run once.
+
 
 ## Tier C. Before real campaigns
 
