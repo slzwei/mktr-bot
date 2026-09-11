@@ -38,9 +38,11 @@ export const deepgramDefaults = { baseUrl: "https://api.au.deepgram.com", model:
 const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const secureScheme: Record<string, "wss:" | "ws:" | undefined> = { "https:": "wss:", "wss:": "wss:", "http:": "ws:", "ws:": "ws:" };
 
-/** The streaming listen URL for a Deepgram origin. Sydney is the default because it is about 94 ms from
- *  Singapore against 180-240 ms to the US at the same price. Cleartext is refused except on loopback so the
- *  API key never leaves the host unencrypted, and a value that is not a bare origin fails at startup. */
+/** The streaming listen URL for a Deepgram origin. Sydney is the default, but the geographic premise for
+ *  that choice was measured false from the droplet and the endpoint is open pending a steady-state replay;
+ *  see the Latency 1 entries in docs/decisions.md, including the data-residency question. Cleartext is
+ *  refused except on loopback so the API key never leaves the host unencrypted, and a value that is not a
+ *  bare origin fails at startup. */
 export function deepgramListenUrl(baseUrl: string = deepgramDefaults.baseUrl): string {
   let url: URL;
   try { url = new URL(baseUrl); } catch (error) { throw new Error(`Deepgram base URL must be an absolute origin such as ${deepgramDefaults.baseUrl}.`, { cause: error }); }

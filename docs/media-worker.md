@@ -26,7 +26,7 @@ Endpointing is the silence after the caller stops before the reply is final. A s
 
 Deepgram fixes endpointing when the connection is established, so a listen node whose value differs from the open connection's makes the worker reconnect for that node; the flow editor's listen inspector says so. A flow whose listen nodes share one value, which is every flow that leaves the field alone, uses a single connection from answer to hangup.
 
-The Deepgram origin comes from `MKTR_DEEPGRAM_BASE_URL` (default `https://api.au.deepgram.com`, Sydney, about 94 ms from Singapore against 180–240 ms to the US). The worker appends `/v1/listen`, fails startup in every mode on a value that is not a bare https or wss origin, and allows cleartext `http`/`ws` only for loopback fakes so the API key never leaves the host unencrypted.
+The Deepgram origin comes from `MKTR_DEEPGRAM_BASE_URL` (default `https://api.au.deepgram.com`, Sydney). The geographic premise for that default was measured false from the droplet on 12 Sep 2026, and the endpoint is open pending a steady-state replay on an already-established connection; data residency is a separate PDPA question. The Latency 1 entries in `docs/decisions.md` carry the measurements and what still has to be decided. The worker appends `/v1/listen`, fails startup in every mode on a value that is not a bare https or wss origin, and allows cleartext `http`/`ws` only for loopback fakes so the API key never leaves the host unencrypted.
 
 ## Latency meaning
 
