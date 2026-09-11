@@ -29,6 +29,8 @@
     <param name="rfc2833-pt" value="101"/>
     <param name="disable-register" value="true"/>
     <param name="auth-calls" value="true"/>
+    <param name="apply-inbound-acl" value="mktr-singtel-inbound"/>
+    <param name="auth-calls-acl-only" value="true"/>
     <param name="enable-chat-api-proto" value="false"/>
     <param name="context" value="public"/>
     <param name="dialplan" value="XML"/>

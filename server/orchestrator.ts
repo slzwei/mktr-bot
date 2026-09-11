@@ -257,7 +257,7 @@ export class CallOrchestrator {
   private async answer(id: string): Promise<CallSession> {
     const session = this.store.getCall(id);
     if (!session) throw new Error("Call not found.");
-    if (!activeStatuses.has(session.status)) return session;
+    if (session.direction === "inbound_callback" || !activeStatuses.has(session.status)) return session;
     if (this.stopping || this.reconciling || this.terminations.has(id)) return session;
     if (["answered", "playing", "listening", "classifying"].includes(session.status)) {
       return session;
@@ -741,7 +741,7 @@ export class CallOrchestrator {
 
   private async handleTelephonyEvent(event: TelephonyEvent): Promise<void> {
     const session = this.store.listCalls().find((call) => call.providerCallId === event.providerCallId);
-    if (!session || !activeStatuses.has(session.status)) return;
+    if (!session || session.direction === "inbound_callback" || !activeStatuses.has(session.status)) return;
     if (event.type === "hangup") {
       const pending = this.terminationReasons.get(session.id);
       await this.complete(session, pending?.status ?? "ended", pending?.reason ?? event.cause ?? "NORMAL_CLEARING");

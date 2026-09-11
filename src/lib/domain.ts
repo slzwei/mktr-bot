@@ -99,6 +99,7 @@ export type CallStatus =
   | "failed";
 
 export type CallEventType =
+  | "inbound_callback"
   | "queued"
   | "dialing"
   | "ringing"

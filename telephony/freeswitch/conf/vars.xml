@@ -3,6 +3,8 @@
   <X-PRE-PROCESS cmd="set" data="external_sip_ip=@@MKTR_GATEWAY_PUBLIC_IP@@"/>
   <X-PRE-PROCESS cmd="set" data="external_rtp_ip=@@MKTR_GATEWAY_PUBLIC_IP@@"/>
   <X-PRE-PROCESS cmd="set" data="mktr_bind_ip=@@MKTR_FREESWITCH_BIND_IP@@"/>
+  <X-PRE-PROCESS cmd="set" data="mktr_inbound_callback_enabled=@@MKTR_INBOUND_CALLBACK_ENABLED@@"/>
+  <X-PRE-PROCESS cmd="set" data="mktr_inbound_record_message=@@MKTR_INBOUND_RECORD_MESSAGE@@"/>
   <X-PRE-PROCESS cmd="set" data="global_codec_prefs=PCMA"/>
   <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=PCMA"/>
 </include>

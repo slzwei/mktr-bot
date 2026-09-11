@@ -4,6 +4,7 @@ import { isIP } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertStrongEslPassword } from "../server/gateway-security.js";
+import { inboundConfiguration } from "../server/inbound-config.js";
 
 type Environment = Record<string, string | undefined>;
 
@@ -29,6 +30,7 @@ const xmlEscape = (value: string): string => value.replace(/[&<>"']/g, (characte
 })[character]!);
 
 export function freeSwitchTemplateValues(environment: Environment): Record<string, string> {
+  const inbound = inboundConfiguration(environment);
   assertStrongEslPassword(environment.MKTR_FREESWITCH_ESL_PASSWORD);
   const publicIp = ipv4("MKTR_GATEWAY_PUBLIC_IP", safeValue("MKTR_GATEWAY_PUBLIC_IP", environment.MKTR_GATEWAY_PUBLIC_IP));
   const octets = publicIp.split(".").map(Number);
@@ -44,6 +46,8 @@ export function freeSwitchTemplateValues(environment: Environment): Record<strin
   const bindIp = ipv4("MKTR_FREESWITCH_BIND_IP", environment.MKTR_FREESWITCH_BIND_IP || "172.29.80.4");
   const apiIp = ipv4("MKTR_API_TELEPHONY_IP", environment.MKTR_API_TELEPHONY_IP || "172.29.80.2");
   const workerIp = ipv4("MKTR_MEDIA_WORKER_TELEPHONY_IP", environment.MKTR_MEDIA_WORKER_TELEPHONY_IP || "172.29.80.3");
+  const inboundIp = ipv4("MKTR_SINGTEL_INBOUND_IP", environment.MKTR_SINGTEL_INBOUND_IP || "52.77.0.62");
+  if (["0.0.0.0", "255.255.255.255"].includes(inboundIp) || Number(inboundIp.split(".")[0]) >= 224) throw new Error("MKTR_SINGTEL_INBOUND_IP must be one confirmed carrier source address.");
   if (new Set([bindIp, apiIp, workerIp]).size !== 3 || [bindIp, apiIp, workerIp].some((ip) => ip === "0.0.0.0" || ip.startsWith("127."))) {
     throw new Error("FreeSWITCH, API and media-worker telephony IPs must be distinct container interface addresses.");
   }
@@ -52,6 +56,14 @@ export function freeSwitchTemplateValues(environment: Environment): Record<strin
     MKTR_FREESWITCH_BIND_IP: bindIp,
     MKTR_API_TELEPHONY_IP: apiIp,
     MKTR_MEDIA_WORKER_TELEPHONY_IP: workerIp,
+    MKTR_SINGTEL_INBOUND_IP: inboundIp,
+    MKTR_INBOUND_CALLBACK_ENABLED: String(inbound.enabled),
+    MKTR_INBOUND_CLIP_FILE: inbound.clipFile,
+    MKTR_INBOUND_RECORD_MESSAGE: String(inbound.recordMessage),
+    MKTR_INBOUND_MAX_MESSAGE_SECONDS: String(inbound.maxMessageSeconds),
+    MKTR_INBOUND_DESTINATION_EXPRESSION: inbound.destinationExpression,
+    MKTR_MAX_CALL_SECONDS: String(inbound.maxCallSeconds),
+    MKTR_MAX_CONCURRENT_CALLS: String(inbound.maxConcurrentCalls),
     MKTR_FREESWITCH_ESL_PASSWORD: safeValue("MKTR_FREESWITCH_ESL_PASSWORD", environment.MKTR_FREESWITCH_ESL_PASSWORD),
     MKTR_SINGTEL_SIP_HOST: host,
     MKTR_SINGTEL_SIP_USERNAME: username,

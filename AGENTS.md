@@ -29,6 +29,8 @@ These hold for every task in this repo. They are not negotiable and no prompt ov
 - `npm run test:e2e:restart` verifies SSE recovery after a simulator API crash using two browsers, random loopback ports and a disposable native PostgreSQL cluster; it requires already-installed `pg_config`, `initdb`, `pg_ctl` and `createdb`
 - `npm run render:freeswitch -- --dry-run` validates the gateway templates with dummy inputs and writes no files
 - `npm run test:freeswitch` verifies the render pipeline and gateway safety guards
+- `npm run test:inbound` verifies callback routing configuration, fake ESL, authenticated history and bounded recording metadata
+- `npm run verify:inbound -- --dry-run` only prints an approved, bounded internal loopback diagnostic; it never executes FreeSWITCH or places a call
 - `npm run db:generate` generates Prisma Client; `npm run db:migrate` applies committed migrations to the configured database
 - `npm run test:db` runs database behavior tests using isolated Compose Postgres or `DATABASE_TEST_URL`; `npm run test:db:local` creates a disposable cluster with already-installed native PostgreSQL tools
 - `npm run verify:runbook` checks every runbook command in dry form and uses dummy configuration/fake Docker; it never runs deployment commands

@@ -47,5 +47,6 @@ cmake --build /build/mod_audio_stream/build -j2
 cmake --install /build/mod_audio_stream/build
 test -s /usr/local/freeswitch/mod/mod_audio_stream.so
 test -s /usr/local/freeswitch/mod/mod_event_socket.so
+test -s /usr/local/freeswitch/mod/mod_avmd.so
 # Runtime must use the MKTR overlay and cannot fall back to vanilla demo users.
 rm -rf /usr/local/freeswitch/conf /usr/local/freeswitch/db /usr/local/freeswitch/log

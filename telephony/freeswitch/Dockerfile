@@ -5,6 +5,8 @@ COPY package*.json ./
 RUN npm ci
 COPY scripts/render-freeswitch.ts ./scripts/render-freeswitch.ts
 COPY server/gateway-security.ts ./server/gateway-security.ts
+COPY server/inbound-config.ts ./server/inbound-config.ts
+COPY src/lib/domain.ts ./src/lib/domain.ts
 RUN ./node_modules/.bin/tsc scripts/render-freeswitch.ts --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck --outDir /renderer
 
 FROM debian:bookworm-slim AS builder

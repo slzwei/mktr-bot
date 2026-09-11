@@ -1,8 +1,34 @@
 <include>
   <context name="public">
+    <extension name="mktr-inbound-callback">
+      <condition field="$${mktr_inbound_callback_enabled}" expression="^true$"/>
+      <condition field="destination_number" expression="@@MKTR_INBOUND_DESTINATION_EXPRESSION@@">
+        <action application="set" data="mktr_callback_to=+$1"/>
+        <action application="set" data="mktr_direction=inbound_callback"/>
+        <action application="set" data="origination_caller_id_name=MKTR"/>
+        <action application="set" data="rtp_secure_media=true"/>
+        <action application="set" data="execute_on_answer=sched_hangup +@@MKTR_MAX_CALL_SECONDS@@ ALLOTTED_TIMEOUT"/>
+        <action application="answer"/>
+        <action application="log" data="NOTICE inbound_callback uuid=${uuid} destination=${mktr_callback_to}"/>
+        <action application="playback" data="/var/lib/freeswitch/recordings/mktr/@@MKTR_INBOUND_CLIP_FILE@@"/>
+        <action application="execute_extension" data="message XML mktr-callback-recording"/>
+        <action application="hangup" data="NORMAL_CLEARING"/>
+      </condition>
+    </extension>
     <extension name="reject-unconfigured-inbound">
       <condition field="destination_number" expression="^.*$">
         <action application="hangup" data="CALL_REJECTED"/>
+      </condition>
+    </extension>
+  </context>
+  <context name="mktr-callback-recording">
+    <extension name="optional-message">
+      <condition field="$${mktr_inbound_record_message}" expression="^true$">
+        <action application="set" data="record_sample_rate=8000"/>
+        <action application="set" data="playback_terminators=#"/>
+        <action application="set" data="mktr_recording_file=${uuid}.wav"/>
+        <action application="record" data="/var/lib/freeswitch/recordings/sessions/${uuid}.wav @@MKTR_INBOUND_MAX_MESSAGE_SECONDS@@ 200 5"/>
+        <anti-action application="set" data="mktr_callback_recording=disabled"/>
       </condition>
     </extension>
   </context>

@@ -7,6 +7,7 @@ import test from "node:test";
 import { DOMParser } from "@xmldom/xmldom";
 import { renderFreeSwitch, renderFreeSwitchCli } from "../scripts/render-freeswitch.js";
 import { assertGatewayStartupConfiguration } from "./gateway-security.js";
+import { CALLER_IDS, RESERVED_CALLER_ID } from "../src/lib/domain.js";
 
 const fixture = () => ({
   MKTR_GATEWAY_PUBLIC_IP: "203.0.113.10",
@@ -45,7 +46,7 @@ test("FreeSWITCH render produces parseable TLS config, escapes credentials and p
     execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=mktr-config-test.invalid", "-days", "1", "-keyout", key, "-out", cert], { stdio: "ignore" });
     await writeFile(agent, await readFile(key, "utf8") + await readFile(cert, "utf8"), { mode: 0o600 });
     const outputDirectory = path.join(directory, "conf");
-    const environment = { ...fixture(), MKTR_SINGTEL_CA_CERT_PATH: cert, MKTR_FREESWITCH_TLS_PEM_PATH: agent };
+    const environment = { ...fixture(), MKTR_SINGTEL_CA_CERT_PATH: cert, MKTR_FREESWITCH_TLS_PEM_PATH: agent, MKTR_INBOUND_CALLBACK_ENABLED: "true", MKTR_INBOUND_CLIP_FILE: "11111111-1111-1111-1111-111111111111.wav", MKTR_INBOUND_RECORD_MESSAGE: "true", MKTR_MAX_CONCURRENT_CALLS: "1" };
     const rendered = await renderFreeSwitch(environment, { outputDirectory });
     assert.equal((await stat(outputDirectory)).mode & 0o777, 0o700);
     for (const file of rendered.files) {
@@ -62,6 +63,28 @@ test("FreeSWITCH render produces parseable TLS config, escapes credentials and p
     assert.equal(settings["tls-sip-port"], "5061");
     assert.equal(settings["tls-verify-policy"], "out|subjects_out");
     assert.equal(settings["tls-cert-dir"], "/etc/freeswitch/tls");
+    assert.equal(settings["apply-inbound-acl"], "mktr-singtel-inbound");
+    assert.equal(settings["auth-calls-acl-only"], "true");
+    const callback = parseXml(await readFile(path.join(outputDirectory, "dialplan/public.xml"), "utf8"));
+    const extension = Array.from(callback.getElementsByTagName("extension")).find((entry) => entry.getAttribute("name") === "mktr-inbound-callback")!;
+    const destination = Array.from(extension.getElementsByTagName("condition")).find((entry) => entry.getAttribute("field") === "destination_number")!;
+    const matcher = new RegExp(destination.getAttribute("expression")!);
+    assert.ok(CALLER_IDS.every((id) => matcher.test(id) && matcher.test(id.slice(1))));
+    assert.equal(matcher.test(RESERVED_CALLER_ID), false);
+    assert.equal(matcher.test("+6590000000"), false);
+    const applications = Array.from(extension.getElementsByTagName("action"));
+    assert.ok(applications.find((item) => item.getAttribute("application") === "answer"));
+    assert.equal(applications.find((item) => item.getAttribute("application") === "playback")?.getAttribute("data"), "/var/lib/freeswitch/recordings/mktr/11111111-1111-1111-1111-111111111111.wav");
+    assert.ok(applications.find((item) => item.getAttribute("data") === "execute_on_answer=sched_hangup +180 ALLOTTED_TIMEOUT"));
+    const record = Array.from(callback.getElementsByTagName("action")).find((item) => item.getAttribute("application") === "record");
+    assert.equal(record?.getAttribute("data"), "/var/lib/freeswitch/recordings/sessions/${uuid}.wav 60 200 5");
+    const limits = parseXml(await readFile(path.join(outputDirectory, "autoload_configs/switch.conf.xml"), "utf8"));
+    assert.equal(Array.from(limits.getElementsByTagName("param")).find((item) => item.getAttribute("name") === "max-sessions")?.getAttribute("value"), "1");
+    const avmd = parseXml(await readFile(path.join(outputDirectory, "autoload_configs/avmd.conf.xml"), "utf8"));
+    const avmdSettings = Object.fromEntries(Array.from(avmd.getElementsByTagName("param")).map((item) => [item.getAttribute("name"), item.getAttribute("value")]));
+    assert.equal(avmdSettings.outbound_channel, "1");
+    assert.equal(avmdSettings.inbound_channel, "0");
+    assert.equal(avmdSettings.detection_mode, "2");
     const socket = parseXml(await readFile(path.join(outputDirectory, "autoload_configs/event_socket.conf.xml"), "utf8"));
     const socketSettings = Object.fromEntries(Array.from(socket.getElementsByTagName("param")).map((param) => [param.getAttribute("name"), param.getAttribute("value")]));
     assert.equal(socketSettings["password"], environment.MKTR_FREESWITCH_ESL_PASSWORD);

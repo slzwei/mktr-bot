@@ -149,8 +149,8 @@ Done when: The UI can delete or archive clips and flows. The retry node exposes 
 Verify: e2e tests cover delete flow, the retry counter in the inspector, and the three navigation views rendering.
 
 ### C5. Inbound callbacks to the caller-ID pool
-Status: todo
-Evidence: 2026-09-11 filesystem/source audit: `telephony/freeswitch/` has only two templates and the cert placeholder, with no inbound dialplan, callback clip/recording flow, or inbound_callback logging; no Singtel ticket/confirmation is recorded. Loopback verification is not verifiable here because Docker/fs_cli and an isolated FreeSWITCH test setup are absent. After implementation, the operator must run the isolated fs_cli loopback check and obtain/link Singtel inbound-routing confirmation or a support ticket; no real call or Singtel contact was made.
+Status: blocked
+Evidence: Implementation complete: merged build, 99 unit tests and 24 Chromium tests pass; `npm run test:inbound` passes 12/12, including five callbacks sharing the orchestrator ceiling and draining with five UUID kills while bypassing outbound playback/AMD. Thirteen XML templates, loopback command construction and runbook dry checks pass. Missing operational Verify: fs_cli plus a running isolated FreeSWITCH instance, and actual Singtel inbound-routing confirmation or a support-ticket reference; none supplied. Docker config/build Verify separately blocked: Docker not installed on host. Shawn must run the isolated loopback check and link carrier evidence per `docs/inbound-callbacks.md`; no real call or carrier contact occurred.
 Why: Callees who ring back a caller-ID number reach nothing, and Singtel CPaaS inbound routing is unresolved.
 Done when: A FreeSWITCH dialplan answers inbound INVITEs for `+6562773211` to `+6562773219`, plays a configurable clip, optionally records a message, and logs an `inbound_callback` call. Singtel CPaaS inbound routing to the gateway is confirmed, or documented as blocked with the support ticket reference.
 Verify: A `fs_cli` loopback originate exercises the inbound dialplan. The Singtel ticket or confirmation is linked in Evidence.

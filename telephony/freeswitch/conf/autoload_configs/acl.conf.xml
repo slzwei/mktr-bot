@@ -1,5 +1,8 @@
 <configuration name="acl.conf" description="Explicit MKTR private peers">
   <network-lists>
+    <list name="mktr-singtel-inbound" default="deny">
+      <node type="allow" cidr="@@MKTR_SINGTEL_INBOUND_IP@@/32"/>
+    </list>
     <list name="mktr-esl" default="deny">
       <node type="allow" cidr="@@MKTR_API_TELEPHONY_IP@@/32"/>
       <node type="allow" cidr="@@MKTR_MEDIA_WORKER_TELEPHONY_IP@@/32"/>

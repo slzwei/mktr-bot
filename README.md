@@ -89,6 +89,8 @@ The FreeSWITCH adapter now keeps a persistent authenticated ESL connection. Answ
 
 Gateway registration, TLS 5061, and actual audio transport remain operator checks. Configuration and fake-adapter tests do not prove a live trunk works.
 
+Inbound callbacks have a separate provider-owned dialplan and remain disabled by default. `MKTR_INBOUND_CLIP_FILE` selects a ready uploaded canonical WAV; optional message recording shares the retained recording volume. Source-IP ACL checks and the same 1–5 gateway session limit protect the caller-ID pool. The API stores callback history through authenticated ESL events. See [inbound setup and outstanding operator checks](docs/inbound-callbacks.md); Singtel routing and the real `fs_cli` loopback verification are blocked here.
+
 ## Monitoring
 
 `GET /api/health` returns HTTP 200 with `gateway: "n/a"` in simulator mode. Gateway readiness requires a connected ESL session and an exact Singtel `REGED` state; failures return 503. Compose probes the API, and pino JSON logs correlate request IDs with call IDs. Aggregate Prometheus metrics are available at the local API's `/metrics` path; Caddy hides that path from the public origin. `docs/alerting.md` documents the metrics and responses to gateway registration loss and call failures.

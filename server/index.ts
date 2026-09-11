@@ -10,12 +10,14 @@ import { createTelephonyAdapter } from "./telephony.js";
 import { installShutdown } from "./shutdown.js";
 import { CampaignDialer } from "./campaigns.js";
 import { OutcomeDispatcher } from "./outcome-delivery.js";
+import { attachInboundCallbacks } from "./inbound-callbacks.js";
 
 const { store, authStore } = await initializeStore();
 await seedAdmin(authStore);
 const adapter = createTelephonyAdapter();
 const classifier = createTranscriptClassifier();
 const calls = new CallOrchestrator(store, adapter, classifier);
+const inboundCallbacks = await attachInboundCallbacks(adapter, store);
 await calls.initialize();
 const recordingPurger = await startRecordingPurger(store, config.recording);
 const campaignDialer = new CampaignDialer(store, calls);
@@ -29,4 +31,4 @@ installShutdown({ server, calls, closeSseStreams,
     const results = await Promise.allSettled([campaignDialer.close(), outcomeDispatcher.close(), recordingPurger.close()]);
     const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
     if (failures.length) throw new AggregateError(failures, "Background services could not be fully drained.");
-  }, closeStore: () => store.close(), logger });
+  }, closeStore: async () => { try { await inboundCallbacks?.close(); } finally { await store.close(); } }, logger });
