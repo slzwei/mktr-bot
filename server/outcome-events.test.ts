@@ -6,17 +6,19 @@ import { FreeSwitchEslAdapter } from "./telephony.js";
 import { InMemoryStore } from "./store.js";
 import { FixtureCallOrchestrator } from "./test-support/fixture-orchestrator.js";
 import { FakeEslServer, fixtureEslPassword, waitFor } from "./test-support/fake-esl.js";
+import { FakeMediaWorker } from "./test-support/fake-media-worker.js";
 
 async function fixture(t: TestContext, recording = false, noSpeechTimeoutMs = 6000) {
   const fake = await new FakeEslServer().start();
-  const adapter = new FreeSwitchEslAdapter(new EslClient({ host: "127.0.0.1", port: fake.port, password: fixtureEslPassword }), true, { webhookToken: "fake-media-token-for-test", workerUrl: "ws://127.0.0.1:8090" });
+  const media = await new FakeMediaWorker().start();
+  const adapter = new FreeSwitchEslAdapter(new EslClient({ host: "127.0.0.1", port: fake.port, password: fixtureEslPassword }), true, { webhookToken: "fake-media-token-for-test", workerUrl: media.url });
   const store = new InMemoryStore();
   const graph = store.getFlow("flow-prospect-intake")!;
   store.saveFlow({ ...graph, version: 4, nodes: [{ id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "Start" } }, { id: "listen", type: "listen", position: { x: 200, y: 0 }, data: { label: "Listen", noSpeechTimeoutMs } }, { id: "end", type: "end", position: { x: 400, y: 0 }, data: { label: "End" } }], edges: [{ id: "s-l", source: "start", target: "listen" }, { id: "l-e", source: "listen", target: "end", condition: { fallback: true } }] });
   const calls = new FixtureCallOrchestrator(store, adapter, undefined, undefined, undefined, undefined, { enabled: recording, directory: "/unused-fixture-recordings", retentionDays: 30 });
-  t.after(async () => { await calls.shutdown(); await fake.close(); });
+  t.after(async () => { await calls.shutdown(); await media.close(); await fake.close(); });
   const start = () => calls.start({ destination: "+6591234519", callerId: CALLER_IDS[0], flowId: graph.id });
-  return { store, fake, calls, start };
+  return { store, fake, media, calls, start };
 }
 
 test("answer starts AMD and optional recording; detected voicemail hangs up once and preserves its outcome across the provider hangup", async (t) => {
@@ -55,14 +57,15 @@ test("provider hangup causes produce busy, no-answer or failed outcomes through 
 });
 
 
-test("a beep or remote hangup during no-speech stream shutdown cannot revive the call or overwrite its outcome", async (t) => {
+test("a beep or remote hangup during no-speech window shutdown cannot revive the call or overwrite its outcome", async (t) => {
   for (const signal of ["beep", "hangup"] as const) {
     const f = await fixture(t, false, 30), call = await f.start();
     let release!: () => void;
-    const held = new Promise<string>((resolve) => { release = () => resolve("+OK"); });
-    f.fake.respond = (command) => command.endsWith(" stop") && command.includes("uuid_audio_stream") ? held : "+OK";
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    // The no-speech path waits for the worker to confirm the window closed; hold that reply.
+    f.media.respond = (window) => window.method === "DELETE" ? held : undefined;
     f.fake.event("CHANNEL_ANSWER", { "Unique-ID": call.providerCallId });
-    await waitFor(() => f.fake.commands.some((command) => command === `api uuid_audio_stream ${call.providerCallId} stop`));
+    await waitFor(() => f.media.windows.some((window) => window.method === "DELETE" && window.callId === call.id));
     if (signal === "beep") f.fake.event("CUSTOM", { "Unique-ID": call.providerCallId, "Event-Subclass": "avmd::beep", "Beep-Status": "DETECTED" });
     else f.fake.event("CHANNEL_HANGUP_COMPLETE", { "Unique-ID": call.providerCallId, "Hangup-Cause": "NORMAL_TEMPORARY_FAILURE" });
     // Events travel independently of the held command reply.

@@ -388,7 +388,7 @@ export function FlowCanvas({ flow, clips, selectedNodeId, onSelectedNodeChange, 
                   const endpointingMs = Number(event.target.value);
                   if (Number.isInteger(endpointingMs) && endpointingMs >= LISTEN_ENDPOINTING.minMs && endpointingMs <= LISTEN_ENDPOINTING.maxMs) updateSelected({ endpointingMs });
                 }} />
-                <small>Silence after the caller stops before the reply is final. A short window answers quickly but truncates long replies: once the reply is final, the rest of the sentence is dropped. Keep short windows for yes/no questions and lengthen this where callers explain themselves.</small>
+                <small>Silence after the caller stops before the reply is final. A short window answers quickly but truncates long replies: once the reply is final, the rest of the sentence is dropped. Keep short windows for yes/no questions and lengthen this where callers explain themselves. One speech connection serves the whole call, opened with the first listen node's setting, so a node that uses a different value reconnects when its turn arrives and that turn waits for the handshake.</small>
               </label>
             )}
             {selectedNode.type === "retry" && (

@@ -13,17 +13,18 @@ export type CaptureFrame = { offset: number; bytes: number; t: number };
 export type Capture = {
   source: string;
   pcm: Buffer;
-  /** Frames in arrival order; `t` is milliseconds after the window opened. */
+  /** Frames in arrival order; `t` is milliseconds after the call's audio stream opened. */
   frames: CaptureFrame[];
   pacing: "sidecar" | "synthetic";
   sidecar?: CaptureSidecar;
 };
 
 const sidecarSchema = z.object({
-  version: z.literal(1), callId: z.string(), windowId: z.string(), encoding: z.literal("linear16"), sampleRate: z.literal(8000), channels: z.literal(1),
+  version: z.literal(1), callId: z.string(), streamId: z.string(), encoding: z.literal("linear16"), sampleRate: z.literal(8000), channels: z.literal(1),
   openedAt: z.string(), closedAt: z.string(), totalBytes: z.number().int().nonnegative(),
   frames: z.array(z.object({ offset: z.number().int().nonnegative(), bytes: z.number().int().positive(), t: z.number().finite().nonnegative() })),
-  utterance: z.object({ transcript: z.string(), latencyMs: z.number().finite().nonnegative().optional(), t: z.number().finite().nonnegative() }).optional()
+  utterances: z.array(z.object({ transcript: z.string(), latencyMs: z.number().finite().nonnegative().optional(), t: z.number().finite().nonnegative(), windowId: z.string().optional() })),
+  utterancesTruncated: z.literal(true).optional()
 });
 
 function syntheticFrames(pcm: Buffer): CaptureFrame[] {

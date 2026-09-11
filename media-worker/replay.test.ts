@@ -79,13 +79,13 @@ test("energy-based speech bounds land on the tone edges and digital silence yiel
 test("captures read with sidecar pacing, bare PCM and WAV read with synthetic pacing, and inconsistent inputs are rejected", async (t) => {
   const directory = await scratch(t);
   const pcm = synth(100, 100, 100);
-  const sidecar: CaptureSidecar = { version: 1, callId: "c", windowId: "w", encoding: "linear16", sampleRate: 8000, channels: 1, openedAt: "2026-09-12T00:00:00.000Z", closedAt: "2026-09-12T00:00:01.000Z", totalBytes: pcm.length,
-    frames: [{ offset: 0, bytes: 1600, t: 12.5 }, { offset: 1600, bytes: 3200, t: 231 }], utterance: { transcript: "live", latencyMs: 900, t: 1150 } };
+  const sidecar: CaptureSidecar = { version: 1, callId: "c", streamId: "w", encoding: "linear16", sampleRate: 8000, channels: 1, openedAt: "2026-09-12T00:00:00.000Z", closedAt: "2026-09-12T00:00:01.000Z", totalBytes: pcm.length,
+    frames: [{ offset: 0, bytes: 1600, t: 12.5 }, { offset: 1600, bytes: 3200, t: 231 }], utterances: [{ transcript: "live", latencyMs: 900, t: 1150, windowId: "window-1" }] };
   await writeFile(path.join(directory, "w.pcm"), pcm);
   await writeFile(path.join(directory, "w.json"), JSON.stringify(sidecar));
   for (const name of ["w.pcm", "w.json"]) {
     const capture = await readCapture(path.join(directory, name));
-    assert.equal(capture.pacing, "sidecar"); assert.deepEqual(capture.frames, sidecar.frames); assert.deepEqual(capture.pcm, pcm); assert.equal(capture.sidecar?.utterance?.transcript, "live");
+    assert.equal(capture.pacing, "sidecar"); assert.deepEqual(capture.frames, sidecar.frames); assert.deepEqual(capture.pcm, pcm); assert.equal(capture.sidecar?.utterances[0].transcript, "live");
   }
   await writeFile(path.join(directory, "bare.pcm"), pcm);
   const bare = await readCapture(path.join(directory, "bare.pcm"));

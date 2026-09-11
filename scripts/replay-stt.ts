@@ -56,7 +56,7 @@ const engines: Record<string, (values: Values) => { engine: SpeechToText; descri
 
 function describeCapture(capture: Capture): string {
   const seconds = (capture.frames.at(-1)?.t ?? 0) / 1000;
-  const live = capture.sidecar?.utterance;
+  const live = capture.sidecar?.utterances[0];
   return `${capture.source}: ${seconds.toFixed(2)} s of audio, ${capture.frames.length} frames, ${capture.pacing} pacing`
     + (live ? `; live transcript "${live.transcript}"${live.latencyMs !== undefined ? ` (worker estimate ${live.latencyMs} ms)` : ""}` : "");
 }
@@ -110,7 +110,7 @@ export async function main(argv: string[]): Promise<number> {
   const measured = results.flatMap((result) => result.speechEndToTranscriptMs !== undefined && !result.error ? [result.speechEndToTranscriptMs] : []);
   const summary = measured.length ? { runs, measured: measured.length, medianMs: median(measured), minMs: Math.min(...measured), maxMs: Math.max(...measured) } : { runs, measured: 0 };
   if (values.json) {
-    process.stdout.write(JSON.stringify({ capture: { source: capture.source, pacing: capture.pacing, frames: capture.frames.length, audioMs: capture.frames.at(-1)?.t ?? 0, liveUtterance: capture.sidecar?.utterance }, speech: bounds, speechEndMs, engine: description, connect: values.connect, results, summary }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ capture: { source: capture.source, pacing: capture.pacing, frames: capture.frames.length, audioMs: capture.frames.at(-1)?.t ?? 0, liveUtterances: capture.sidecar?.utterances }, speech: bounds, speechEndMs, engine: description, connect: values.connect, results, summary }, null, 2) + "\n");
   } else if (runs > 1) {
     process.stdout.write(measured.length ? `summary over ${measured.length}/${runs} runs: median ${summary.medianMs} ms, min ${summary.minMs} ms, max ${summary.maxMs} ms\n` : "summary: no successful runs\n");
   }

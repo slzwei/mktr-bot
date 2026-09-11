@@ -12,7 +12,7 @@ const token = "media-lifecycle-fixture-token";
 async function fixture(t: TestContext, custom: Partial<WorkerOptions> = {}) {
   const callId = randomUUID(); const windowId = randomUUID();
   const notifications: { path: string; body: Record<string, unknown> }[] = [];
-  const errors: { error: Error; context: { callId: string; windowId: string } }[] = [];
+  const errors: { error: Error; context: { callId: string; windowId?: string } }[] = [];
   let callbacks: SpeechCallbacks | undefined;
   let closed = 0;
   const worker = createMediaWorker({
@@ -26,15 +26,19 @@ async function fixture(t: TestContext, custom: Partial<WorkerOptions> = {}) {
   worker.server.listen(0, "127.0.0.1"); await once(worker.server, "listening");
   t.after(() => worker.close());
   const { port } = worker.server.address() as { port: number };
-  const raw = (window = windowId) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/audio/${callId}/${window}`, { headers: { Authorization: `Bearer ${token}` } });
+  const raw = (call = callId) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/audio/${call}`, { headers: { Authorization: `Bearer ${token}` } });
     socket.on("error", () => undefined);
     return socket;
   };
   return {
     worker, port, callId, windowId, notifications, errors, raw, callbacks: () => callbacks!, closed: () => closed,
     async connect() { const socket = raw(); await once(socket, "open"); return socket; },
-    async health() { return await (await fetch(`http://127.0.0.1:${port}/health`)).json() as { windows: number; pendingReceipts: number }; }
+    window(method: "POST" | "DELETE", id = windowId, endpointingMs?: number) {
+      return fetch(`http://127.0.0.1:${port}/calls/${callId}/window/${id}${endpointingMs === undefined ? "" : `?endpointingMs=${endpointingMs}`}`,
+        { method, headers: { Authorization: `Bearer ${token}` } });
+    },
+    async health() { return await (await fetch(`http://127.0.0.1:${port}/health`)).json() as { calls: number; windows: number; pendingReceipts: number }; }
   };
 }
 
@@ -42,15 +46,15 @@ function rejected(socket: WebSocket) {
   return new Promise<number>((resolve) => socket.on("unexpected-response", (_request, response) => { response.resume(); resolve(response.statusCode!); socket.terminate(); }));
 }
 
-async function waitForWindows(f: Awaited<ReturnType<typeof fixture>>, expected: number) {
+async function waitForCalls(f: Awaited<ReturnType<typeof fixture>>, expected: number) {
   const deadline = performance.now() + 2000;
-  while ((await f.health()).windows !== expected) {
-    assert.ok(performance.now() < deadline, `Expected ${expected} active media windows`);
+  while ((await f.health()).calls !== expected) {
+    assert.ok(performance.now() < deadline, `Expected ${expected} active media calls`);
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
 
-test("a throwing provider audio write closes its window and reports one authenticated media failure", async (t) => {
+test("a throwing provider audio write ends its turn and reports one authenticated media failure", async (t) => {
   let closes = 0;
   const f = await fixture(t, { stt: { provider: "fake", async open() { return { write() { throw new Error("Audio sink failed"); }, close() { closes++; } }; } } });
   const socket = await f.connect(); socket.send(Buffer.alloc(320));
@@ -72,7 +76,8 @@ test("caller disconnect cancels a pending provider open and closes any late stre
   await waitFor(() => Boolean(openingSignal?.aborted));
   resolveOpen({ write() { writes++; }, close() { closes++; } });
   await waitFor(() => closes === 1);
-  assert.equal(writes, 0); assert.equal(f.notifications.length, 0); assert.equal((await f.health()).windows, 0);
+  assert.equal(writes, 0); assert.equal(f.notifications.length, 0);
+  await waitForCalls(f, 0);
 });
 
 test("provider open has a deadline even when it ignores abort, and throwing close cannot retain the window", async (t) => {
@@ -101,7 +106,7 @@ test("buffered PCM retains arrival time and failures while flushing it cannot es
   assert.deepEqual(f.errors.map(({ error }) => error.message), ["Buffered write failed", "Provider close failed"]);
 });
 
-test("lost transcript reply retries the same receipt after audio closes without a second classification", async (t) => {
+test("lost transcript reply retries the same receipt after the call hangs up without a second classification", async (t) => {
   const receipts: Record<string, unknown>[] = []; const accepted = new Set<string>(); let effects = 0; let errorPosts = 0;
   let f: Awaited<ReturnType<typeof fixture>>;
   f = await fixture(t, { fetch: async (input, init) => {
@@ -116,17 +121,18 @@ test("lost transcript reply retries the same receipt after audio closes without 
   const socket = await f.connect();
   f.callbacks().onUtterance({ transcript: "can lah", latencyMs: 850 });
   f.callbacks().onUtterance({ transcript: "duplicate", latencyMs: 851 });
-  f.callbacks().onError(new Error("Provider closed after final result"));
-  await once(socket, "close");
-  assert.equal((await f.health()).windows, 0);
+  await waitFor(() => receipts.length === 1);
   assert.equal((await f.health()).pendingReceipts, 1);
+  // The channel clears while the receipt is still in flight; the receipt must survive it.
+  const peerClosed = once(socket, "close"); socket.close(); await peerClosed;
   await waitFor(() => receipts.length === 2);
   assert.deepEqual(receipts[1], receipts[0]); assert.equal(effects, 1); assert.equal(errorPosts, 0); assert.equal(f.closed(), 1);
   assert.equal(receipts[0].windowId, f.windowId); assert.equal(receipts[0].sttLatencyMs, 850);
-  await waitForWindows(f, 0);
+  await waitForCalls(f, 0);
+  assert.equal((await f.health()).pendingReceipts, 0);
 });
 
-for (const status of [400, 503]) test(`transcript HTTP ${status} ends bounded delivery and reports a media error after input closure`, async (t) => {
+for (const status of [400, 503]) test(`transcript HTTP ${status} ends bounded delivery and reports a media error`, async (t) => {
   let attempts = 0; let f: Awaited<ReturnType<typeof fixture>>;
   f = await fixture(t, { fetch: async (input, init) => {
     if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: f.windowId, endpointingMs: 300 });
@@ -149,6 +155,34 @@ test("provider error reports a failed error notification with call context and d
   assert.match(f.errors[1].error.message, /notification returned HTTP 503/);
   assert.deepEqual(f.errors[1].context, { callId: f.callId, windowId: f.windowId });
   assert.equal((await f.health()).windows, 0); assert.equal(f.closed(), 1);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(f.errors.length, 2, "a replaced provider's later callbacks are ignored");
+});
+
+test("a provider failure outside a listen window keeps the call and reconnects at the next window", async (t) => {
+  const opens: number[] = []; const callbacks: SpeechCallbacks[] = [];
+  let f: Awaited<ReturnType<typeof fixture>>;
+  f = await fixture(t, {
+    stt: { provider: "fake", async open(value, _signal, listen) { opens.push(listen!.endpointingMs); callbacks.push(value); return { write() {}, close() {} }; } },
+    fetch: async (input, init) => {
+      if (String(input).endsWith("/window")) return Response.json({ status: "playing", endpointingMs: 300 });
+      f.notifications.push({ path: new URL(String(input)).pathname, body: JSON.parse(String(init?.body)) });
+      return Response.json({ ok: true });
+    }
+  });
+  const socket = await f.connect();
+  await waitFor(() => opens.length === 1);
+  callbacks[0].onError(new Error("Deepgram closed during playback"));
+  await waitFor(() => f.errors.length === 1);
+  assert.equal(f.notifications.length, 0, "no window was open, so the call is not failed");
+  assert.equal(socket.readyState, WebSocket.OPEN);
+  await f.window("POST", f.windowId, 300);
+  await waitFor(() => opens.length === 2);
+  callbacks[1].onUtterance({ transcript: "can lah" });
+  await waitFor(() => f.notifications.some((post) => post.path.endsWith("/transcript")));
+  const receipt = f.notifications.find((post) => post.path.endsWith("/transcript"))!;
+  assert.equal(receipt.body.windowId, f.windowId);
+  assert.deepEqual(opens, [300, 300]);
 });
 
 for (const bytes of [3, 32_002, 64_002]) test(`${bytes}-byte invalid or excessive PCM is rejected without opening an unbounded buffer`, async (t) => {
@@ -158,61 +192,78 @@ for (const bytes of [3, 32_002, 64_002]) test(`${bytes}-byte invalid or excessiv
   assert.equal((await f.health()).windows, 0); assert.equal(f.errors.length, 1);
 });
 
-test("an idle provider window expires independently of the audio source", async (t) => {
-  const f = await fixture(t, { maxWindowMs: 25 }); await f.connect();
+test("a call whose audio outlives its maximum duration is ended and reported", async (t) => {
+  const f = await fixture(t, { maxCallMs: 25 }); await f.connect();
   await waitFor(() => f.notifications.length === 1);
-  assert.match(f.errors[0].error.message, /exceeded its lifetime/); assert.equal((await f.health()).windows, 0);
+  assert.match(f.errors[0].error.message, /exceeded its maximum lifetime/);
+  await waitForCalls(f, 0);
+});
+
+test("audio beyond the call's PCM budget is refused", async (t) => {
+  const f = await fixture(t, { maxCallMs: 1000 });
+  const socket = await f.connect();
+  // 1 s of call allows 16 000 bytes plus a tenth of headroom; two 16 kB frames pass it.
+  socket.send(Buffer.alloc(16_000)); socket.send(Buffer.alloc(16_000));
+  await waitFor(() => f.notifications.length === 1);
+  assert.match(f.errors[0].error.message, /exceeded the maximum call duration/);
+  await waitForCalls(f, 0);
 });
 
 test("upgrade lookup timeout includes a stalled response body and releases its reservation", async (t) => {
   const f = await fixture(t, { apiTimeoutMs: 25, fetch: async () => new Response(new ReadableStream({ start() {} }), { headers: { "Content-Type": "application/json" } }) });
   assert.equal(await rejected(f.raw()), 409);
-  assert.equal((await f.health()).windows, 0);
+  assert.equal((await f.health()).calls, 0);
   assert.match(f.errors[0].error.name, /TimeoutError/);
 });
 
-test("pending upgrades count toward the five-window ceiling and shutdown cancels transports that ignore abort", async (t) => {
+test("pending upgrades count toward the five-call ceiling and shutdown cancels transports that ignore abort", async (t) => {
   let lookups = 0;
   const f = await fixture(t, { fetch: async () => { lookups++; return new Promise(() => undefined); } });
   const peers = Array.from({ length: 5 }, () => f.raw(randomUUID()));
   await waitFor(() => lookups === 5);
-  assert.equal(await rejected(f.raw()), 409); assert.equal(lookups, 5);
-  assert.equal((await f.health()).windows, 5);
+  assert.equal(await rejected(f.raw(randomUUID())), 409); assert.equal(lookups, 5);
+  assert.equal((await f.health()).calls, 5);
   peers[0].terminate();
-  await waitForWindows(f, 4);
+  await waitForCalls(f, 4);
   const before = performance.now(); await f.worker.close();
   assert.ok(performance.now() - before < 500);
   assert.equal(f.errors.length, 0);
 });
 
-test("awaiting receipt replies free audio capacity for the next listen while rejecting duplicate old windows", async (t) => {
-  const callbacks: SpeechCallbacks[] = []; const ids = Array.from({ length: 6 }, () => randomUUID());
-  let lookups = 0; let receipts = 0;
+test("a call keeps its slot for one audio stream and releases it for the next call once its receipt settles", async (t) => {
+  const ids = Array.from({ length: 6 }, () => randomUUID());
+  let receipts = 0; const callbacks: SpeechCallbacks[] = [];
   const f = await fixture(t, {
     stt: { provider: "fake", async open(value) { callbacks.push(value); return { write() {}, close() {} }; } },
     fetch: async (input) => {
-      if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: ids[lookups++], endpointingMs: 300 });
+      if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: ids[0], endpointingMs: 300 });
       receipts++; return new Promise(() => undefined);
     }
   });
-  for (const id of ids.slice(0, 5)) { const socket = f.raw(id); await once(socket, "open"); }
-  assert.equal((await f.health()).windows, 5);
+  const sockets = [];
+  for (const id of ids.slice(0, 5)) { const socket = f.raw(id); await once(socket, "open"); sockets.push(socket); }
+  assert.equal((await f.health()).calls, 5);
+  assert.equal(await rejected(f.raw(ids[0])), 409, "one audio stream per call");
+  assert.equal(await rejected(f.raw(ids[5])), 409, "the trunk ceiling holds across calls");
   for (const callback of callbacks) callback.onUtterance({ transcript: "can" });
   await waitFor(() => receipts === 5);
   assert.equal((await f.health()).pendingReceipts, 5);
-  assert.equal(await rejected(f.raw(ids[0])), 409);
+  // Hanging up frees the call slot even though the receipt is still unanswered.
+  sockets[0].close(); await once(sockets[0], "close");
+  await waitForCalls(f, 4);
+  assert.equal((await f.health()).pendingReceipts, 5);
   const next = f.raw(ids[5]); await once(next, "open");
-  assert.equal(callbacks.length, 6); assert.equal((await f.health()).windows, 1);
+  assert.equal((await f.health()).calls, 5);
   await f.worker.close();
 });
 
-test("a malformed authenticated WebSocket handshake cannot retain an active-window reservation", async (t) => {
+test("a malformed authenticated WebSocket handshake cannot retain a call reservation", async (t) => {
   const f = await fixture(t);
   const socket = net.createConnection({ host: "127.0.0.1", port: f.port });
   await once(socket, "connect");
   const response: Buffer[] = []; socket.on("data", (data) => response.push(data));
-  socket.write(`GET /audio/${f.callId}/${f.windowId} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nAuthorization: Bearer ${token}\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 6\r\n\r\n`);
+  socket.write(`GET /audio/${f.callId} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nAuthorization: Bearer ${token}\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 6\r\n\r\n`);
   await once(socket, "close");
   assert.match(Buffer.concat(response).toString(), /HTTP\/1.1 400/);
-  assert.equal((await f.health()).windows, 0); assert.equal(f.closed(), 0);
+  assert.equal((await f.health()).calls, 0); assert.equal(f.closed(), 0);
 });

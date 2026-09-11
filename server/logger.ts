@@ -8,7 +8,9 @@ export const withLogContext = <T>(value: LogContext, action: () => T): T => cont
 
 export const logger = pino({
   level: process.env.LOG_LEVEL || "info",
-  mixin: () => currentLogContext() ?? {},
+  // A copy: pino merges each entry's fields into the object its mixin returns, so handing it the
+  // stored context would leave one entry's `err` and identifiers attached to every later entry.
+  mixin: () => ({ ...currentLogContext() }),
   serializers: { err: pino.stdSerializers.err },
   redact: {
     paths: ["password", "passwordHash", "token", "authorization", "cookie", "apiKey", "transcript", "*.password", "*.passwordHash", "*.token", "*.apiKey", "req.headers.authorization", "req.headers.cookie"],

@@ -14,23 +14,16 @@ import type {
   FlowNode,
   TestCallInput
 } from "../src/lib/domain.js";
-import { SCENARIOS } from "../src/lib/domain.js";
+import { ACTIVE_CALL_STATUSES, SCENARIOS } from "../src/lib/domain.js";
 import { createTranscriptClassifier, type TranscriptClassifier } from "./classifier.js";
 import { config } from "./config.js";
+import { flowListens, listenEndpointingMs } from "./listen-window.js";
 import { logger } from "./logger.js";
 import { voiceMetrics } from "./metrics.js";
 import type { Store } from "./store.js";
 import { assertAllowedCallerId, type TelephonyAdapter, type TelephonyEvent } from "./telephony.js";
 
-const activeStatuses = new Set<CallStatus>([
-  "queued",
-  "dialing",
-  "ringing",
-  "answered",
-  "playing",
-  "listening",
-  "classifying"
-]);
+const activeStatuses = ACTIVE_CALL_STATUSES;
 
 type PlaybackDelay = (clip: Clip, mode: TelephonyAdapter["mode"]) => number;
 export type TranscriptReceipt = { windowId: string; utteranceId: string; sttLatencyMs?: number };
@@ -275,6 +268,12 @@ export class CallOrchestrator {
       this.after(session.id, this.deadlines.maxCallMs, async (current) => { await this.finish(current, "ended", "ALLOTTED_TIMEOUT"); });
       if (this.adapter.mode === "freeswitch") {
         await this.adapter.startAnsweringMachineDetection?.(session.providerCallId);
+        // A listening flow gets one speech stream, opened here and closed with the channel, so no
+        // listen window pays a provider handshake. Windows remain the gate on acting for a
+        // transcript. A flow that only announces opens no stream and buys no provider minutes.
+        if (flowListens(flow) && activeStatuses.has(this.store.getCall(id)?.status ?? "failed") && !this.terminations.has(id)) {
+          await this.adapter.startStreaming?.(session.providerCallId, session.id);
+        }
         if (this.recording.enabled && activeStatuses.has(this.store.getCall(id)?.status ?? "failed") && !this.terminations.has(id)) {
           if (!this.adapter.startRecording) throw new Error("The telephony adapter cannot record this call.");
           session.recordingFile = `${session.id}.wav`;
@@ -324,6 +323,7 @@ export class CallOrchestrator {
         this.store.saveConsent({ id: randomUUID(), phone: session.destination, source: `Explicit voice opt-out in call ${session.id}`, consentedAt: this.store.getConsent(session.destination)?.consentedAt ?? now, recordedAt: now, purpose: "voice_marketing", revokedAt: now });
       }
       this.record(session, "transcript_final", "Transcript final", transcript, listeningNode.id, receipt?.sttLatencyMs);
+      const closedWindow = session.listenWindowId;
       session.lastListenWindowId = session.listenWindowId;
       this.clearListenTimer(session.id);
       // The worker's estimate runs from the final word's audio time to utterance completion, so the
@@ -336,7 +336,7 @@ export class CallOrchestrator {
       session.listenWindowId = undefined;
       session.status = "classifying";
       await this.persist(session);
-      await this.adapter.stopListening?.(session.providerCallId);
+      if (closedWindow) await this.adapter.stopListening?.(session.id, closedWindow);
 
       const startedAt = performance.now();
       const result = await this.classifier.classify(transcript);
@@ -472,6 +472,10 @@ export class CallOrchestrator {
 
   private async enterListening(session: CallSession, node: FlowNode) {
     this.turns.delete(session.id);
+    // Both node settings are read before the window exists so a rejected value opens nothing.
+    const endpointingMs = listenEndpointingMs(node);
+    const timeout = node.data.noSpeechTimeoutMs ?? 6000;
+    if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Listen timeout must be from 1 to 60000 milliseconds.");
     session.listenWindowId = randomUUID();
     await this.transition(
       session,
@@ -481,11 +485,9 @@ export class CallOrchestrator {
       this.adapter.mode === "simulated" ? "Simulator response window" : "Waiting for media gateway transcript",
       node.id
     );
-    await this.adapter.startListening?.(session.providerCallId, session.id, session.listenWindowId);
+    await this.adapter.startListening?.(session.id, session.listenWindowId, endpointingMs);
     if (!activeStatuses.has(this.store.getCall(session.id)?.status ?? "ended") || this.terminations.has(session.id)) return;
     const windowId = session.listenWindowId;
-    const timeout = node.data.noSpeechTimeoutMs ?? 6000;
-    if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Listen timeout must be from 1 to 60000 milliseconds.");
     this.clearListenTimer(session.id);
     const timer = setTimeout(() => {
       void this.enqueue(session.id, () => this.noSpeech(session.id, windowId)).catch((error: unknown) => {
@@ -530,7 +532,7 @@ export class CallOrchestrator {
     session.status = "classifying";
     await this.persist(session);
     try {
-      await this.adapter.stopListening?.(session.providerCallId);
+      await this.adapter.stopListening?.(id, windowId);
       const latest = this.store.getCall(id);
       if (!latest || !activeStatuses.has(latest.status) || this.terminations.has(id)) return;
       const flow = this.flowForSession(session);

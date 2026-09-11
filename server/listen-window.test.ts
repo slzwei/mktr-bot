@@ -13,6 +13,7 @@ import { flowDefinitionSchema } from "./request-schemas.js";
 import { InMemoryStore } from "./store.js";
 import { FreeSwitchEslAdapter } from "./telephony.js";
 import { FakeEslServer, fixtureEslPassword, waitFor } from "./test-support/fake-esl.js";
+import { FakeMediaWorker } from "./test-support/fake-media-worker.js";
 import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
 
 const token = "Bearer fixture-token-url-safe";
@@ -30,7 +31,8 @@ test("the media window lookup carries each listen node's endpointing, the shared
   store.saveFlow(flow("yes-no", { label: "Yes or no", endpointingMs: 180 }));
   store.saveFlow(flow("open-question", { label: "Open question" }));
   const fake = new FakeEslServer(); await fake.start(); t.after(() => fake.close());
-  const adapter = new FreeSwitchEslAdapter(new EslClient({ host: "127.0.0.1", port: fake.port, password: fixtureEslPassword }), true, { webhookToken: "fixture-token-url-safe", workerUrl: "ws://media-worker:8090" }); t.after(() => adapter.close());
+  const media = await new FakeMediaWorker().start(); t.after(() => media.close());
+  const adapter = new FreeSwitchEslAdapter(new EslClient({ host: "127.0.0.1", port: fake.port, password: fixtureEslPassword }), true, { webhookToken: "fixture-token-url-safe", workerUrl: media.url }); t.after(() => adapter.close());
   const calls = new CallOrchestrator(store, adapter, new RuleClassifier());
   const { app } = createApp({ store, adapter, classifier: new RuleClassifier(), calls, authStore: new InMemoryAuthStore(), mediaGatewayToken: "fixture-token-url-safe" });
   for (const [flowId, expected] of [["yes-no", 180], ["open-question", LISTEN_ENDPOINTING.defaultMs]] as const) {
@@ -39,8 +41,12 @@ test("the media window lookup carries each listen node's endpointing, the shared
     await waitFor(() => calls.get(call.id)?.status === "listening");
     const listening = (await request(app).get(`/api/media/calls/${call.id}/window`).set("Authorization", token).expect(200)).body;
     assert.deepEqual(listening, { status: "listening", listenWindowId: calls.get(call.id)!.listenWindowId, endpointingMs: expected });
+    // The same value reaches the worker, which holds one provider connection for the whole call.
+    assert.deepEqual(media.opened(call.id).map(({ windowId, endpointingMs, authorization }) => ({ windowId, endpointingMs, authorization })),
+      [{ windowId: listening.listenWindowId, endpointingMs: expected, authorization: "Bearer fixture-token-url-safe" }]);
     await request(app).post(`/api/calls/${call.id}/transcript`).set("Authorization", token).send({ transcript: "yes", windowId: listening.listenWindowId, utteranceId: randomUUID() }).expect(200);
     await waitFor(() => calls.get(call.id)?.status === "ended");
+    assert.deepEqual(media.closed(call.id).map(({ windowId }) => windowId), [listening.listenWindowId]);
     assert.deepEqual((await request(app).get(`/api/media/calls/${call.id}/window`).set("Authorization", token).expect(200)).body, { status: "ended" });
   }
 });

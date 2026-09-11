@@ -5,6 +5,7 @@ import type { CallerId, Clip, TelephonyMode, TestCallInput, TrunkStatus } from "
 import { CALLER_IDS, RESERVED_CALLER_ID } from "../src/lib/domain.js";
 import { config, isProductionGatewayConfigured } from "./config.js";
 import { FreeSwitchHealthProbe, type TelephonyHealth } from "./health.js";
+import { logger } from "./logger.js";
 
 export type TelephonyCall = { providerCallId: string };
 export type ProviderChannel = { providerCallId: string; callerName: string };
@@ -22,8 +23,12 @@ export interface TelephonyAdapter {
   hangup(providerCallId: string): Promise<void>;
   startAnsweringMachineDetection?(providerCallId: string): Promise<void>;
   startRecording?(providerCallId: string, callId: string): Promise<void>;
-  startListening?(providerCallId: string, callId: string, windowId: string): Promise<void>;
-  stopListening?(providerCallId: string): Promise<void>;
+  /** Opens the call's single speech stream at answer. It closes with the channel at hangup. */
+  startStreaming?(providerCallId: string, callId: string): Promise<void>;
+  /** Tells the media worker a listen window is open and which endpointing its replies use. */
+  startListening?(callId: string, windowId: string, endpointingMs: number): Promise<void>;
+  /** Tells the media worker the window has closed. The audio stream keeps running. */
+  stopListening?(callId: string, windowId: string): Promise<void>;
   listChannels?(): Promise<ProviderChannel[]>;
   onConnection?(listener: (connected: boolean) => void): () => void;
   onEvent?(listener: (event: TelephonyEvent) => void): () => void;
@@ -56,7 +61,8 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
   constructor(
     readonly client = new EslClient(config.freeswitch),
     readonly configured = isProductionGatewayConfigured(),
-    private readonly media = config.mediaGateway
+    private readonly media = config.mediaGateway,
+    private readonly mediaTimeoutMs = 3000
   ) {
     this.unsubscribe = client.onEvent((event) => this.receive(event));
     this.healthProbe = new FreeSwitchHealthProbe(client, configured);
@@ -114,6 +120,9 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
 
   async hangup(providerCallId: string): Promise<void> {
     this.assertUuid(providerCallId);
+    // The stream dies with the channel, so a refused stop must never stand between us and the kill.
+    try { await this.stopStreaming(providerCallId); }
+    catch (error) { logger.warn({ providerCallId, err: error }, "Audio stream stop was not confirmed; terminating the channel anyway"); }
     try { await this.client.command(`api uuid_kill ${providerCallId} NORMAL_CLEARING`); }
     catch (error) {
       // A remote hangup can win the race with this idempotent termination request.
@@ -142,8 +151,44 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
     await this.client.command(`api uuid_record ${providerCallId} start /var/lib/freeswitch/recordings/sessions/${callId}.wav`);
   }
 
-  async startListening(providerCallId: string, callId: string, windowId: string): Promise<void> {
-    [providerCallId, callId, windowId].forEach((id) => this.assertUuid(id));
+  /** One stream per call: started on answer so no listen window ever pays a provider handshake. */
+  async startStreaming(providerCallId: string, callId: string): Promise<void> {
+    [providerCallId, callId].forEach((id) => this.assertUuid(id));
+    const url = this.mediaWorkerUrl(`/audio/${callId}`);
+    await this.client.command(`api uuid_setvar ${providerCallId} STREAM_EXTRA_HEADERS ${JSON.stringify({ Authorization: `Bearer ${this.media.webhookToken}` })}`);
+    // mono is the read (callee) leg; 8k is signed little-endian PCM on the supported Linux hosts.
+    await this.client.command(`api uuid_audio_stream ${providerCallId} start ${url.href} mono 8k`);
+    this.streams.add(providerCallId);
+  }
+
+  private async stopStreaming(providerCallId: string): Promise<void> {
+    if (!this.streams.delete(providerCallId)) return;
+    try { await this.client.command(`api uuid_audio_stream ${providerCallId} stop`); }
+    catch (error) {
+      // The channel can clear first; the stream then ends with it.
+      if (!(error instanceof EslCommandError) || !/No such channel|invalid uuid/i.test(error.reply)) throw error;
+    }
+  }
+
+  async startListening(callId: string, windowId: string, endpointingMs: number): Promise<void> {
+    [callId, windowId].forEach((id) => this.assertUuid(id));
+    if (!Number.isSafeInteger(endpointingMs)) throw new Error("Listen endpointing must be a whole number of milliseconds.");
+    const url = this.mediaWorkerUrl(`/calls/${callId}/window/${windowId}`, "http");
+    url.search = new URLSearchParams({ endpointingMs: String(endpointingMs) }).toString();
+    // A window the worker never learns about is a deaf turn, so this failure fails the call.
+    await this.mediaWorkerRequest("POST", url);
+  }
+
+  async stopListening(callId: string, windowId: string): Promise<void> {
+    [callId, windowId].forEach((id) => this.assertUuid(id));
+    const url = this.mediaWorkerUrl(`/calls/${callId}/window/${windowId}`, "http");
+    // Closing is an optimisation: it stops the worker submitting a late reply the API would
+    // refuse anyway. Losing it must not fail a call that has already been answered.
+    try { await this.mediaWorkerRequest("DELETE", url); }
+    catch (error) { logger.warn({ callId, windowId, err: error }, "Media worker did not confirm the listen window closed"); }
+  }
+
+  private mediaWorkerUrl(pathname: string, scheme: "ws" | "http" = "ws"): URL {
     if (this.media.webhookToken.length < 16 || !/^[A-Za-z0-9_-]+$/.test(this.media.webhookToken)) {
       throw new Error("Media gateway token must have at least 16 URL-safe characters.");
     }
@@ -151,17 +196,18 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
     if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || url.search || url.hash || !/^[a-zA-Z0-9.:/-]+$/.test(url.href)) {
       throw new Error("Media worker URL must be a plain ws or wss service URL.");
     }
-    url.pathname = `/audio/${callId}/${windowId}`;
-    await this.client.command(`api uuid_setvar ${providerCallId} STREAM_EXTRA_HEADERS ${JSON.stringify({ Authorization: `Bearer ${this.media.webhookToken}` })}`);
-    // mono is the read (callee) leg; 8k is signed little-endian PCM on the supported Linux hosts.
-    await this.client.command(`api uuid_audio_stream ${providerCallId} start ${url.href} mono 8k`);
-    this.streams.add(providerCallId);
+    // The worker serves its control routes and its audio upgrades on one listener.
+    if (scheme === "http") url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    url.pathname = pathname;
+    return url;
   }
 
-  async stopListening(providerCallId: string): Promise<void> {
-    this.assertUuid(providerCallId);
-    if (!this.streams.delete(providerCallId)) return;
-    await this.client.command(`api uuid_audio_stream ${providerCallId} stop`);
+  private async mediaWorkerRequest(method: "POST" | "DELETE", url: URL): Promise<void> {
+    const response = await fetch(url, {
+      method, headers: { Authorization: `Bearer ${this.media.webhookToken}` }, signal: AbortSignal.timeout(this.mediaTimeoutMs)
+    });
+    await response.body?.cancel();
+    if (!response.ok) throw new Error(`Media worker ${method} ${url.pathname} returned HTTP ${response.status}.`);
   }
 
   close(): void { this.unsubscribe(); this.client.close(); }

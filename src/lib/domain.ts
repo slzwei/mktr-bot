@@ -103,6 +103,17 @@ export type CallStatus =
   | "ended"
   | "failed";
 
+/** A call still running. Everything else is terminal, so the media worker refuses audio for it. */
+export const ACTIVE_CALL_STATUSES: ReadonlySet<CallStatus> = new Set<CallStatus>([
+  "queued",
+  "dialing",
+  "ringing",
+  "answered",
+  "playing",
+  "listening",
+  "classifying"
+]);
+
 export type CallEventType =
   | "inbound_callback"
   | "queued"
