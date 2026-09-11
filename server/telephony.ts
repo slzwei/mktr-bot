@@ -4,6 +4,7 @@ import { EslClient, EslCommandError, type EslEvent } from "./esl.js";
 import type { CallerId, Clip, TelephonyMode, TestCallInput, TrunkStatus } from "../src/lib/domain.js";
 import { CALLER_IDS, RESERVED_CALLER_ID } from "../src/lib/domain.js";
 import { config, isProductionGatewayConfigured } from "./config.js";
+import { FreeSwitchHealthProbe, type TelephonyHealth } from "./health.js";
 
 export type TelephonyCall = { providerCallId: string };
 export type ProviderChannel = { providerCallId: string; callerName: string };
@@ -25,6 +26,7 @@ export interface TelephonyAdapter {
   onConnection?(listener: (connected: boolean) => void): () => void;
   onEvent?(listener: (event: TelephonyEvent) => void): () => void;
   close?(): void | Promise<void>;
+  health?(): Promise<TelephonyHealth>;
 }
 
 export class SimulatedTelephonyAdapter implements TelephonyAdapter {
@@ -35,6 +37,7 @@ export class SimulatedTelephonyAdapter implements TelephonyAdapter {
   }
   async hangup(): Promise<void> { return; }
   async playClip(): Promise<void> { return; }
+  async health(): Promise<TelephonyHealth> { return { ok: true, esl: "n/a", gateway: "n/a" }; }
 }
 
 export class FreeSwitchEslAdapter implements TelephonyAdapter {
@@ -45,12 +48,19 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
   private readonly seenEvents = new Set<string>();
   private readonly streams = new Set<string>();
   private readonly unsubscribe: () => void;
+  private readonly healthProbe: FreeSwitchHealthProbe;
 
   constructor(
     readonly client = new EslClient(config.freeswitch),
     readonly configured = isProductionGatewayConfigured(),
     private readonly media = config.mediaGateway
-  ) { this.unsubscribe = client.onEvent((event) => this.receive(event)); }
+  ) {
+    this.unsubscribe = client.onEvent((event) => this.receive(event));
+    this.healthProbe = new FreeSwitchHealthProbe(client, configured);
+  }
+
+  health(): Promise<TelephonyHealth> { return this.healthProbe.read(); }
+
 
   onEvent(listener: (event: TelephonyEvent) => void): () => void {
     this.events.on("event", listener);

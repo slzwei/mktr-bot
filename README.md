@@ -68,6 +68,10 @@ The FreeSWITCH adapter now keeps a persistent authenticated ESL connection. Answ
 
 Gateway registration, TLS 5061, and actual audio transport remain operator checks. Configuration and fake-adapter tests do not prove a live trunk works.
 
+## Monitoring
+
+`GET /api/health` returns HTTP 200 with `gateway: "n/a"` in simulator mode. Gateway readiness requires a connected ESL session and an exact Singtel `REGED` state; failures return 503. Compose probes the API, and pino JSON logs correlate request IDs with call IDs. Aggregate Prometheus metrics are available at the local API's `/metrics` path; Caddy hides that path from the public origin. `docs/alerting.md` documents the metrics and responses to gateway registration loss and call failures.
+
 ## Singtel values in this workspace
 
 | Setting | Value |

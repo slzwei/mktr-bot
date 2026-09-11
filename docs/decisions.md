@@ -1,5 +1,8 @@
 # Implementation decisions
 
+- **B2 — readiness through the event connection:** query Singtel gateway status through the existing ESL client, accept only connected `REGED`, and bound/cache/coalesce probes because a healthy HTTP process does not prove trunk readiness and health checks must not congest call commands.
+- **B2 — local aggregate metrics:** use pino with request/call correlation and `prom-client` with fixed outcome/provider labels, expose metrics only through the local API/private network, and keep counters process-local because a single-host deployment needs inspectable monitoring without external services or high-cardinality personal data.
+
 - A2: Use one serialized, reconnecting ESL connection and never replay an interrupted command because repeating an originate can create a second billable channel. The protocol follows the [FreeSWITCH event socket reference](https://developer.signalwire.com/freeswitch/integration/event-socket/).
 - A2: Reserve and store the provider UUID before origination, match events to that UUID, and tag every playback because provider events can precede command replies and duplicate playback notifications must not advance a later node.
 - A2: Terminate the provider channel before releasing its logical slot; if hangup cannot be confirmed, retain the slot and expose the error so a reconnect or operator retry can reconcile it.

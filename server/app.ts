@@ -11,7 +11,9 @@ import { createAuth, requireAdmin, requireMediaGateway, type AuthStore } from ".
 import { config } from "./config.js";
 import type { TranscriptClassifier } from "./classifier.js";
 import { validateFlow } from "./flow-validation.js";
-import { logger as defaultLogger } from "./logger.js";
+import { logger as defaultLogger, withLogContext } from "./logger.js";
+import { voiceMetrics, type VoiceMetrics } from "./metrics.js";
+import type { TelephonyHealth } from "./health.js";
 import type { CallOrchestrator } from "./orchestrator.js";
 import type { Store } from "./store.js";
 import { getTrunkStatus, type TelephonyAdapter } from "./telephony.js";
@@ -27,12 +29,15 @@ export type AppDependencies = {
   mediaGatewayToken?: string;
   trustProxy?: string[];
   logger?: Logger;
+  metrics?: VoiceMetrics;
   callRateLimit?: number;
 };
 
 export function createApp(dependencies: AppDependencies) {
   const { store, adapter, classifier, calls, authStore } = dependencies;
   const logger = dependencies.logger ?? defaultLogger;
+  const metrics = dependencies.metrics ?? voiceMetrics;
+  metrics.setActiveCallSource(() => calls.activeCallCount());
   const webOrigin = dependencies.webOrigin ?? config.webOrigin;
   const app = express();
   const streams = new Set<Response>();
@@ -46,20 +51,30 @@ export function createApp(dependencies: AppDependencies) {
   }));
   app.use((request, response, next) => {
     const requestId = randomUUID();
+    const callId = request.path.match(/^\/api\/calls\/([^/]+)(?:\/|$)/)?.[1];
     response.locals.requestId = requestId;
+    response.locals.callId = callId;
     response.setHeader("X-Request-ID", requestId);
-    response.on("finish", () => logger.info({ requestId, method: request.method, path: request.path, statusCode: response.statusCode }, "HTTP request completed"));
+    const startedAt = performance.now();
+    response.on("finish", () => logger.info({ requestId, callId: response.locals.callId, method: request.method, path: request.path, statusCode: response.statusCode, durationMs: Math.round(performance.now() - startedAt) }, "HTTP request completed"));
     const origin = request.header("origin");
     if (origin && origin !== webOrigin) return response.status(403).json({ error: "Request origin is not allowed." });
-    return next();
+    return withLogContext({ requestId, callId }, next);
   });
   app.use(cors({ origin: webOrigin, credentials: true, methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], allowedHeaders: ["Content-Type", "Authorization", "Last-Event-ID"] }));
   app.use(express.json({ limit: "1mb" }));
   app.use("/api", (_request, response, next) => { response.setHeader("Cache-Control", "no-store"); next(); });
   ensureClipStorage();
 
-  app.get("/api/health", (_request, response) => {
-    response.json({ ok: true, mode: adapter.mode, configured: adapter.configured });
+  app.get("/api/health", async (_request, response) => {
+    const health: TelephonyHealth = adapter.mode === "simulated" ? { ok: true, esl: "n/a", gateway: "n/a" }
+      : adapter.health ? await adapter.health() : { ok: false, esl: "disconnected", gateway: "UNKNOWN", reason: "unconfigured" };
+    metrics.observeHealth(adapter.mode, health);
+    response.status(health.ok ? 200 : 503).json({ ...health, mode: adapter.mode, configured: adapter.configured });
+  });
+  // Metrics contain aggregate labels only. Caddy denies this path externally.
+  app.get("/metrics", async (_request, response) => {
+    response.type(metrics.registry.contentType).send(await metrics.registry.metrics());
   });
   app.post("/api/auth/login", rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: "draft-7", legacyHeaders: false, message: { error: "Too many sign-in attempts. Try again later." } }), auth.login);
 
@@ -157,6 +172,7 @@ export function createApp(dependencies: AppDependencies) {
     const input = z.object({ destination: z.string(), callerId: z.enum(CALLER_IDS), flowId: z.string(), scenario: z.enum(["interested", "not_interested", "callback", "uncertain"]).optional() }).strict().parse(request.body) as TestCallInput;
     const call = await calls.start(input);
     await store.flush();
+    response.locals.callId = call.id;
     response.status(201).json(call);
   });
   app.get("/api/calls/:id", async (request, response) => {
@@ -194,7 +210,7 @@ export function createApp(dependencies: AppDependencies) {
     if (statusCode === 400 || statusCode === 413 || statusCode === 404) return response.status(statusCode).json({ error: statusCode === 413 ? "Request is too large." : statusCode === 404 ? "Resource not found." : "Invalid request." });
     const message = error instanceof Error ? error.message : "Unexpected server error.";
     if (/^The Singtel trunk is at its \d+-call limit\.$/.test(message) || message === "Publish the flow before starting a call.") return response.status(409).json({ error: message });
-    logger.error({ err: error, requestId: response.locals.requestId, method: request.method, path: request.path }, "Unhandled request failure");
+    logger.error({ err: error, requestId: response.locals.requestId, callId: response.locals.callId, method: request.method, path: request.path }, "Unhandled request failure");
     return response.status(500).json({ error: "Unexpected server error. Contact the administrator with the request ID.", requestId: response.locals.requestId });
   });
   return { app, closeSseStreams() { for (const stream of streams) stream.end(); streams.clear(); } };

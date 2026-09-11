@@ -15,6 +15,8 @@ import type {
 import { SCENARIOS } from "../src/lib/domain.js";
 import { createTranscriptClassifier, type TranscriptClassifier } from "./classifier.js";
 import { config } from "./config.js";
+import { logger } from "./logger.js";
+import { voiceMetrics } from "./metrics.js";
 import type { Store } from "./store.js";
 import { assertAllowedCallerId, type TelephonyAdapter, type TelephonyEvent } from "./telephony.js";
 
@@ -76,13 +78,13 @@ export class CallOrchestrator {
     }
     this.unsubscribeAdapter = adapter.onEvent?.((event) => {
       void this.handleTelephonyEvent(event).catch((error: unknown) => {
-        console.error("Telephony event handling failed", { providerCallId: event.providerCallId, error });
+        logger.error({ providerCallId: event.providerCallId, err: error }, "Telephony event handling failed");
       });
     });
     this.unsubscribeConnection = adapter.onConnection?.((connected) => {
       if (!this.initialized || this.stopping) return;
       this.reconciling = true;
-      if (connected) void this.reconcile("ESL_RECONNECTED").catch((error: unknown) => console.error("ESL reconciliation failed; dialing disabled", { error }));
+      if (connected) void this.reconcile("ESL_RECONNECTED").catch((error: unknown) => logger.error({ err: error }, "ESL reconciliation failed; dialing disabled"));
     });
   }
 
@@ -252,6 +254,7 @@ export class CallOrchestrator {
       this.record(session, "transcript_final", "Transcript final", transcript, listeningNode.id, receipt?.sttLatencyMs);
       session.lastListenWindowId = session.listenWindowId;
       this.clearListenTimer(session.id);
+      if (receipt?.sttLatencyMs !== undefined) voiceMetrics.observeSttLatency(receipt.sttLatencyMs, process.env.MKTR_STT_PROVIDER || "deepgram");
       session.lastUtteranceId = receipt?.utteranceId;
       session.listenWindowId = undefined;
       session.status = "classifying";
@@ -408,7 +411,7 @@ export class CallOrchestrator {
     this.clearListenTimer(session.id);
     const timer = setTimeout(() => {
       void this.enqueue(session.id, () => this.noSpeech(session.id, windowId)).catch((error: unknown) => {
-        console.error("No-speech routing failed", { callId: session.id, error });
+        logger.error({ callId: session.id, err: error }, "No-speech routing failed");
       });
     }, timeout);
     timer.unref();
@@ -580,7 +583,7 @@ export class CallOrchestrator {
       const current = this.store.getCall(callId);
       if (current && activeStatuses.has(current.status)) {
         try { await this.finish(current, "failed", error instanceof Error ? error.message : "Call automation failed."); }
-        catch (hangupError) { console.error("Scheduled call termination failed", { callId, error: hangupError }); }
+        catch (hangupError) { logger.error({ callId, err: hangupError }, "Scheduled call termination failed"); }
       }
     }
   }
@@ -714,6 +717,7 @@ export class CallOrchestrator {
   }
 
   private publish(session: CallSession) {
+    voiceMetrics.observeCall(session);
     this.updates.emit("call:" + session.id, structuredClone(session));
   }
 }

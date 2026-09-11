@@ -82,8 +82,8 @@ Done when: `@prisma/client` and migrations exist for the schema plus a `FlowVers
 Verify: `npm run test:db` runs the `PrismaStore` suite against the compose Postgres. A flow edited before an api restart is still there after it. `GET /api/flows/:id/versions/:v` returns the exact graph a call ran.
 
 ### B2. Logging, metrics, and health
-Status: todo
-Evidence: 2026-09-11 `curl` against the disposable simulator returns HTTP 200 and `{"ok":true,"mode":"simulated","configured":true}`, omitting required `gateway: "n/a"` (`server/index.ts:25`). No ESL registration probe, fake-NOREG/503 test, pino request/call logs, Prometheus metrics, API compose healthcheck, or alerting doc exists; the required health verification therefore does not pass.
+Status: done
+Evidence: Simulator `curl /api/health` returns 200 with gateway/esl n/a; fake-ESL NOREG yields503, REGED/coalesced/bounded probes and public metric/error-correlation tests pass; orchestrator publishes call/outcome and accepted-STT metrics after persistence. Build,44 unit tests and11 Chromium tests pass. Compose healthcheck Verify blocked: Docker not installed on host.
 Why: One console line on boot, the error handler logs nothing, and health only reflects config presence.
 Done when: pino structured logs carry a request id and call id. The error handler logs at error level with the stack. `GET /api/health` reports ESL connectivity and Singtel gateway `REGED` state in freeswitch mode and returns 503 when unregistered. `GET /metrics` exposes active calls, calls by outcome, classifier latency, and STT latency. Compose has a healthcheck for the api. A short alerting doc covers "gateway unregistered" and "call failure rate".
 Verify: `curl /api/health` in simulator returns 200 with `gateway: "n/a"`. A health test with a fake ESL returning `NOREG` returns 503.

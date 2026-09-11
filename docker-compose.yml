@@ -3,6 +3,12 @@ services:
     build: .
     restart: unless-stopped
     stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health',{signal:AbortSignal.timeout(2500)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
     ports:
       - "127.0.0.1:${MKTR_API_PORT:-8787}:8787"
     environment:
