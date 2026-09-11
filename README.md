@@ -131,3 +131,7 @@ On API startup or ESL reconnection, MKTR channels and stored active calls are re
 Every console/campaign dial, including the simulator, now requires recorded voice consent or a fresh affirmative DNC result. Record actual evidence in Campaigns; imported CSV rows do not grant permission. Clearances expire after 21 days, and explicit voice opt-outs prevent subsequent attempts. See `docs/compliance.md` for the relied-on basis and operator workflow. Automated tests use isolated fixture evidence only.
 
 Outbound answers start local voicemail beep detection; normalized outcomes appear in history and campaign CSV. Optional session audio uses `recording-data` and an hourly/boot retention purge; see `docs/recording-and-amd.md`. All provider behavior is verified against fake ESL and fake STT; real detection/audio checks remain in Shawn's runbook.
+
+## Deployed host
+
+Production runs on the DigitalOcean droplet `mktr-voice` at https://voice.mktr.sg. Host facts, everyday commands, the redeploy procedure, and the defects found during the first live call are in [docs/deployment-mktr-voice.md](docs/deployment-mktr-voice.md). A new host is prepared with `scripts/bootstrap-host.sh`.
