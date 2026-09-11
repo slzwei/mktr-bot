@@ -8,6 +8,12 @@ Caller disconnect and worker shutdown cancel pending provider connections. A pro
 
 Transcript delivery uses one generated `utteranceId` across at most three attempts, with 100 ms and 200 ms retry delays. Network failures and HTTP 5xx responses are retried; other HTTP 4xx responses terminate delivery. HTTP 409 means the listen window has closed and needs no further delivery. Each API attempt has a three-second deadline covering both response headers and body handling. Provider or delivery failures send the existing generic media-error notification for that exact window; failed notifications are logged, and the API's listen timeout remains the fallback. Shutdown cancels pending HTTP work.
 
+## Listen window settings
+
+Before it accepts audio, the worker asks `GET /api/media/calls/:id/window` for the call's state. A listening reply carries the listen node's `endpointingMs` (the node's own value, or 300 ms when the node leaves it unset), and the worker forwards it to the provider for that window alone; a listening reply that omits the value or puts it outside 100–1000 ms refuses the socket with 409 and is reported with the call and window IDs. Endpointing is the silence after the caller stops before the reply is final. A short window returns yes/no answers quickly but truncates longer replies, because the first finalized utterance completes the window and later speech is dropped. The range stops at 1000 ms because Deepgram's UtteranceEnd fallback, fixed at 1000 ms, would otherwise finalize ahead of the endpoint.
+
+The Deepgram origin comes from `MKTR_DEEPGRAM_BASE_URL` (default `https://api.au.deepgram.com`, Sydney, about 94 ms from Singapore against 180–240 ms to the US). The worker appends `/v1/listen`, fails startup in every mode on a value that is not a bare https or wss origin, and allows cleartext `http`/`ws` only for loopback fakes so the API key never leaves the host unencrypted.
+
 ## Latency meaning
 
 `sttLatencyMs` estimates the delay from the final recognized word's audio time to the completed utterance. It includes endpointing, network transport, and audio buffered while the provider connects. The worker preserves the original PCM arrival timestamp; Deepgram maps its last finalized word's `end` (or `UtteranceEnd.last_word_end`) onto the audio timeline anchored at the first PCM frame, subtracting that frame's duration. Later silence frames do not reset this anchor.

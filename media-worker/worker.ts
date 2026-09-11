@@ -3,12 +3,14 @@ import type { Duplex } from "node:stream";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { z } from "zod";
+import { LISTEN_ENDPOINTING } from "../src/lib/domain.js";
 import type { CaptureWindow, PcmCapture } from "./pcm-capture.js";
-import type { SpeechStream, SpeechToText, Utterance } from "./speech-to-text.js";
+import type { ListenSettings, SpeechStream, SpeechToText, Utterance } from "./speech-to-text.js";
 
 const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}";
 const audioPath = new RegExp(`^/audio/(${uuid})/(${uuid})$`, "i");
-const windowSchema = z.object({ status: z.string(), listenWindowId: z.string().optional() });
+// The API resolves endpointing per listen node; a listening reply must carry it or the socket is refused.
+const windowSchema = z.object({ status: z.string(), listenWindowId: z.string().optional(), endpointingMs: z.number().int().min(LISTEN_ENDPOINTING.minMs).max(LISTEN_ENDPOINTING.maxMs).optional() });
 const utteranceSchema = z.object({ transcript: z.string().trim().min(1).max(2000), latencyMs: z.number().finite().min(0).max(60_000).optional() });
 export type WorkerOptions = {
   token: string;
@@ -99,12 +101,14 @@ export function createMediaWorker(options: WorkerOptions) {
       return windowSchema.parse(await response.json());
     }, pending.signal).then((window) => {
       if (window.status !== "listening" || window.listenWindowId !== windowId) throw new Error("Audio socket refers to a closed listen window.");
+      if (window.endpointingMs === undefined) throw new Error("Listen window lookup omitted the node's endpointing.");
+      const listen: ListenSettings = { endpointingMs: window.endpointingMs };
       if (socket.destroyed || stopping || sessions.get(windowId) !== dispose) return;
       sockets.handleUpgrade(request, socket, head, (ws) => {
         socket.removeListener("close", release);
         socket.removeListener("end", dispose);
         socket.removeListener("error", socketError);
-        openWindow(ws, callId, windowId);
+        openWindow(ws, callId, windowId, listen);
       });
     }).catch((error: unknown) => {
       if (!pending.signal.aborted && !stopping) report(error, callId, windowId);
@@ -113,7 +117,7 @@ export function createMediaWorker(options: WorkerOptions) {
     });
   });
 
-  function openWindow(socket: WebSocket, callId: string, windowId: string) {
+  function openWindow(socket: WebSocket, callId: string, windowId: string, listen: ListenSettings) {
     let stream: SpeechStream | undefined;
     let phase: "collecting" | "submitting" | "finished" = "collecting";
     let inputClosed = false;
@@ -210,7 +214,7 @@ export function createMediaWorker(options: WorkerOptions) {
     connectionDeadline = setTimeout(() => fail(new Error("Speech stream connection timed out.")), options.connectTimeoutMs ?? 3000);
     windowDeadline = setTimeout(() => fail(new Error("Speech listen window exceeded its lifetime.")), options.maxWindowMs ?? 65_000);
     connectionDeadline.unref(); windowDeadline.unref();
-    void Promise.resolve().then(() => options.stt.open({ onUtterance: utterance, onError: providerFailed }, opening.signal)).then((opened) => {
+    void Promise.resolve().then(() => options.stt.open({ onUtterance: utterance, onError: providerFailed }, opening.signal, listen)).then((opened) => {
       clearTimeout(connectionDeadline);
       if (phase !== "collecting") { closeProvider(opened); return; }
       stream = opened;

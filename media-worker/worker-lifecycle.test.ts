@@ -19,7 +19,7 @@ async function fixture(t: TestContext, custom: Partial<WorkerOptions> = {}) {
     token, apiUrl: "http://api.fixture", stt: { provider: "fake", async open(value) { callbacks = value; return { write() {}, close() { closed++; } }; } },
     fetch: async (input, init) => {
       if (init?.method === "POST") { notifications.push({ path: new URL(String(input)).pathname, body: JSON.parse(String(init.body)) }); return Response.json({ ok: true }); }
-      return Response.json({ status: "listening", listenWindowId: windowId });
+      return Response.json({ status: "listening", listenWindowId: windowId, endpointingMs: 300 });
     },
     onError: (error, context) => errors.push({ error, context }), ...custom
   });
@@ -105,7 +105,7 @@ test("lost transcript reply retries the same receipt after audio closes without 
   const receipts: Record<string, unknown>[] = []; const accepted = new Set<string>(); let effects = 0; let errorPosts = 0;
   let f: Awaited<ReturnType<typeof fixture>>;
   f = await fixture(t, { fetch: async (input, init) => {
-    if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: f.windowId });
+    if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: f.windowId, endpointingMs: 300 });
     assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${token}`);
     if (String(input).endsWith("/error")) { errorPosts++; return Response.json({ ok: true }); }
     const body = JSON.parse(String(init?.body)); receipts.push(body);
@@ -129,7 +129,7 @@ test("lost transcript reply retries the same receipt after audio closes without 
 for (const status of [400, 503]) test(`transcript HTTP ${status} ends bounded delivery and reports a media error after input closure`, async (t) => {
   let attempts = 0; let f: Awaited<ReturnType<typeof fixture>>;
   f = await fixture(t, { fetch: async (input, init) => {
-    if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: f.windowId });
+    if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: f.windowId, endpointingMs: 300 });
     if (String(input).endsWith("/transcript")) { attempts++; return Response.json({ error: "Fixture failure" }, { status }); }
     f.notifications.push({ path: new URL(String(input)).pathname, body: JSON.parse(String(init?.body)) });
     return Response.json({ ok: true });
@@ -143,7 +143,7 @@ for (const status of [400, 503]) test(`transcript HTTP ${status} ends bounded de
 test("provider error reports a failed error notification with call context and does not leak its window", async (t) => {
   let f: Awaited<ReturnType<typeof fixture>>;
   f = await fixture(t, { fetch: async (input) => String(input).endsWith("/window")
-    ? Response.json({ status: "listening", listenWindowId: f.windowId }) : Response.json({ error: "Unavailable" }, { status: 503 }) });
+    ? Response.json({ status: "listening", listenWindowId: f.windowId, endpointingMs: 300 }) : Response.json({ error: "Unavailable" }, { status: 503 }) });
   await f.connect(); f.callbacks().onError(new Error("Provider failed")); f.callbacks().onError(new Error("Duplicate provider failure"));
   await waitFor(() => f.errors.length === 2);
   assert.match(f.errors[1].error.message, /notification returned HTTP 503/);
@@ -191,7 +191,7 @@ test("awaiting receipt replies free audio capacity for the next listen while rej
   const f = await fixture(t, {
     stt: { provider: "fake", async open(value) { callbacks.push(value); return { write() {}, close() {} }; } },
     fetch: async (input) => {
-      if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: ids[lookups++] });
+      if (String(input).endsWith("/window")) return Response.json({ status: "listening", listenWindowId: ids[lookups++], endpointingMs: 300 });
       receipts++; return new Promise(() => undefined);
     }
   });

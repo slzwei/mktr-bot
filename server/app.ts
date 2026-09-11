@@ -27,6 +27,7 @@ import { logger as defaultLogger, withLogContext } from "./logger.js";
 import { voiceMetrics, type VoiceMetrics } from "./metrics.js";
 import type { TelephonyHealth } from "./health.js";
 import { HttpError } from "./http-error.js";
+import { listenWindow } from "./listen-window.js";
 import { clipUploadFieldsSchema, flowDefinitionSchema } from "./request-schemas.js";
 import type { CallOrchestrator } from "./orchestrator.js";
 import type { Store } from "./store.js";
@@ -114,7 +115,8 @@ export function createApp(dependencies: AppDependencies) {
   app.get("/api/media/calls/:id/window", mediaOnly, async (request, response) => {
     const call = await calls.get(z.string().parse(request.params.id));
     if (!call) return response.status(404).json({ error: "Call not found." });
-    return response.json({ status: call.status, listenWindowId: call.listenWindowId });
+    // The worker opens its provider socket with the listen node's own endpointing, so it is resolved here per window.
+    return response.json(listenWindow(call, store.getFlowVersion(call.flowId, call.flowVersion)));
   });
   app.post("/api/media/calls/:id/error", mediaOnly, async (request, response) => {
     const body = z.object({ windowId: z.string().uuid(), error: z.literal("Speech transcription unavailable.") }).strict().parse(request.body);

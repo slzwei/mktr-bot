@@ -32,7 +32,7 @@ async function fixture(t: TestContext, options: { capture?: boolean; openDelayMs
     } },
     fetch: async (input, init) => {
       if (init?.method === "POST") { posts.push({ path: new URL(String(input)).pathname, body: JSON.parse(String(init.body)) }); return Response.json({ status: "playing" }); }
-      return Response.json({ status: "listening", listenWindowId: windowId });
+      return Response.json({ status: "listening", listenWindowId: windowId, endpointingMs: 300 });
     },
     capture: options.capture ? createPcmCapture({ directory, onError: (error, context) => captureErrors.push({ error, context }) }) : undefined,
     onError: (error, context) => errors.push({ error, context })

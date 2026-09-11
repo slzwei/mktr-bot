@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { z } from "zod";
-import type { SpeechCallbacks, SpeechStream, SpeechToText } from "./speech-to-text.js";
+import { LISTEN_ENDPOINTING } from "../src/lib/domain.js";
+import type { ListenSettings, SpeechCallbacks, SpeechStream, SpeechToText } from "./speech-to-text.js";
 
 const alternativesSchema = z.object({ alternatives: z.array(z.object({
   transcript: z.string().max(2000), words: z.array(z.object({ end: z.number().finite().nonnegative() })).max(2000).optional()
@@ -20,33 +21,53 @@ const resultSchema = z.object({
 export type DeepgramOptions = {
   apiKey: string;
   language?: string;
+  /** Full listen WebSocket URL; production derives it from MKTR_DEEPGRAM_BASE_URL through deepgramListenUrl. */
   endpoint?: string;
   connectTimeoutMs?: number;
   now?: () => number;
   /** Deepgram model name; production uses nova-3. */
   model?: string;
-  /** Silence after speech before Deepgram finalizes the utterance; production uses 750 ms. */
+  /** Silence after speech before Deepgram finalizes the utterance, for windows that carry no per-node value; nodes default to 300 ms. */
   endpointingMs?: number;
   /** Gap without new words before an UtteranceEnd marker; Deepgram requires at least 1000 ms. */
   utteranceEndMs?: number;
 };
 
-export const deepgramDefaults = { model: "nova-3", endpointingMs: 750, utteranceEndMs: 1000 } as const;
+export const deepgramDefaults = { baseUrl: "https://api.au.deepgram.com", model: "nova-3", endpointingMs: LISTEN_ENDPOINTING.defaultMs, utteranceEndMs: 1000 } as const;
+
+const loopbackHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+const secureScheme: Record<string, "wss:" | "ws:" | undefined> = { "https:": "wss:", "wss:": "wss:", "http:": "ws:", "ws:": "ws:" };
+
+/** The streaming listen URL for a Deepgram origin. Sydney is the default because it is about 94 ms from
+ *  Singapore against 180-240 ms to the US at the same price. Cleartext is refused except on loopback so the
+ *  API key never leaves the host unencrypted, and a value that is not a bare origin fails at startup. */
+export function deepgramListenUrl(baseUrl: string = deepgramDefaults.baseUrl): string {
+  let url: URL;
+  try { url = new URL(baseUrl); } catch (error) { throw new Error(`Deepgram base URL must be an absolute origin such as ${deepgramDefaults.baseUrl}.`, { cause: error }); }
+  const protocol = secureScheme[url.protocol];
+  if (!protocol) throw new Error("Deepgram base URL must use https or wss.");
+  if (protocol === "ws:" && !loopbackHosts.has(url.hostname)) throw new Error("Deepgram base URL may use cleartext http or ws only for loopback fakes.");
+  if (url.username || url.password || url.search || url.hash || url.pathname.replace(/\/+$/, "") !== "") throw new Error(`Deepgram base URL must be a bare origin without a path, credentials or query, such as ${deepgramDefaults.baseUrl}.`);
+  url.protocol = protocol;
+  url.pathname = "/v1/listen";
+  return url.toString();
+}
 
 export class DeepgramSpeechToText implements SpeechToText {
   readonly provider = "deepgram";
   constructor(private readonly options: DeepgramOptions) {}
 
-  async open(callbacks: SpeechCallbacks, signal?: AbortSignal): Promise<SpeechStream> {
+  async open(callbacks: SpeechCallbacks, signal?: AbortSignal, listen?: ListenSettings): Promise<SpeechStream> {
     if (!this.options.apiKey) throw new Error("DEEPGRAM_API_KEY is required for streaming transcription.");
     const model = this.options.model ?? deepgramDefaults.model;
-    const endpointingMs = this.options.endpointingMs ?? deepgramDefaults.endpointingMs;
+    // The listen node's own window wins; the constructor value serves replay and windows without one.
+    const endpointingMs = listen?.endpointingMs ?? this.options.endpointingMs ?? deepgramDefaults.endpointingMs;
     const utteranceEndMs = this.options.utteranceEndMs ?? deepgramDefaults.utteranceEndMs;
     if (!/^[a-z0-9][a-z0-9.-]*$/i.test(model)) throw new Error("Deepgram model must be a plain model name.");
     if (!Number.isSafeInteger(endpointingMs) || endpointingMs < 0 || endpointingMs > 60_000) throw new Error("Deepgram endpointing must be an integer from 0 to 60000 milliseconds.");
     if (!Number.isSafeInteger(utteranceEndMs) || utteranceEndMs < 1000 || utteranceEndMs > 60_000) throw new Error("Deepgram utterance end must be an integer from 1000 to 60000 milliseconds.");
     signal?.throwIfAborted();
-    const endpoint = new URL(this.options.endpoint ?? "wss://api.deepgram.com/v1/listen");
+    const endpoint = new URL(this.options.endpoint ?? deepgramListenUrl());
     // Deepgram does not list en-SG as a supported wire code; en is its English model.
     const locale = this.options.language ?? "en-SG";
     endpoint.search = new URLSearchParams({ model, language: locale === "en-SG" ? "en" : locale,

@@ -71,6 +71,7 @@ test("malformed flow bodies cannot replace a stored graph", async (context) => {
     { ...original, nodes: [{ id: 4, type: "shell", position: null, data: { label: "Invalid" } }] },
     { ...original, nodes: [...original.nodes, original.nodes[0]] },
     { ...original, nodes: original.nodes.map((node) => ({ ...node, data: { ...node.data, maxAttempts: -1 } })) },
+    { ...original, nodes: original.nodes.map((node) => node.type === "listen" ? { ...node, data: { ...node.data, endpointingMs: 99 } } : node) },
     { ...original, extra: "unrecognized" }
   ]) await request(app).put(`/api/flows/${original.id}`).set("Cookie", cookie).send(changed).expect(400);
   assert.deepEqual(store.getFlow(original.id), original);

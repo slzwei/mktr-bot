@@ -5,16 +5,16 @@ import { once } from "node:events";
 import WebSocket, { WebSocketServer } from "ws";
 import { createMediaWorker } from "./worker.js";
 import { DeepgramSpeechToText } from "./deepgram.js";
-import type { SpeechCallbacks, SpeechToText } from "./speech-to-text.js";
+import type { ListenSettings, SpeechCallbacks, SpeechToText } from "./speech-to-text.js";
 import { waitFor } from "../server/test-support/fake-esl.js";
 
 const token = "fixture-token-no-provider-secret";
-test("audio source delivers PCM to fake STT and exactly one authenticated transcript per listen window", async (t) => {
+test("audio source delivers PCM and the node's endpointing to fake STT and exactly one authenticated transcript per listen window", async (t) => {
   const callId = randomUUID(); const windowId = randomUUID();
-  let callback: SpeechCallbacks | undefined; let pcmBytes = 0; let providerClosed = false;
+  let callback: SpeechCallbacks | undefined; let pcmBytes = 0; let providerClosed = false; let listen: ListenSettings | undefined;
   const posts: { url: string; body: Record<string, unknown>; authorization: string }[] = [];
-  const stt: SpeechToText = { provider: "fake", async open(callbacks) {
-    callback = callbacks;
+  const stt: SpeechToText = { provider: "fake", async open(callbacks, _signal, settings) {
+    callback = callbacks; listen = settings;
     return { write(pcm) { pcmBytes += pcm.length; }, close() { providerClosed = true; } };
   } };
   const worker = createMediaWorker({ token, apiUrl: "http://api.test", stt, fetch: async (input, init) => {
@@ -22,7 +22,7 @@ test("audio source delivers PCM to fake STT and exactly one authenticated transc
       posts.push({ url: String(input), body: JSON.parse(String(init.body)), authorization: new Headers(init.headers).get("authorization")! });
       return Response.json({ status: "ended" });
     }
-    return Response.json({ status: "listening", listenWindowId: windowId });
+    return Response.json({ status: "listening", listenWindowId: windowId, endpointingMs: 220 });
   } });
   worker.server.listen(0, "127.0.0.1"); await once(worker.server, "listening"); t.after(() => worker.close());
   const address = worker.server.address() as { port: number };
@@ -32,6 +32,7 @@ test("audio source delivers PCM to fake STT and exactly one authenticated transc
   callback!.onUtterance({ transcript: "can lah", latencyMs: 40 });
   callback!.onUtterance({ transcript: "can lah", latencyMs: 41 });
   await waitFor(() => providerClosed);
+  assert.deepEqual(listen, { endpointingMs: 220 });
   assert.equal(posts.length, 1); assert.match(posts[0].url, new RegExp(`/api/calls/${callId}/transcript$`));
   assert.equal(posts[0].body.transcript, "can lah"); assert.equal(posts[0].body.windowId, windowId);
   assert.equal(posts[0].authorization, `Bearer ${token}`); assert.match(String(posts[0].body.utteranceId), /^[a-f0-9-]{36}$/);
@@ -60,7 +61,7 @@ test("Deepgram wire provider streams 8 kHz linear16 and endpoints final segments
     peer = socket;
     const query = new URL(request.url!, "http://fixture.test").searchParams;
     assert.equal(query.get("model"), "nova-3"); assert.equal(query.get("language"), "en");
-    assert.equal(query.get("sample_rate"), "8000"); assert.equal(query.get("encoding"), "linear16"); assert.equal(query.get("endpointing"), "750");
+    assert.equal(query.get("sample_rate"), "8000"); assert.equal(query.get("encoding"), "linear16"); assert.equal(query.get("endpointing"), "300");
     assert.equal(request.headers.authorization, "Token fake-deepgram-fixture");
     socket.on("message", (_data, binary) => { if (binary) frames++; });
   });
@@ -74,4 +75,22 @@ test("Deepgram wire provider streams 8 kHz linear16 and endpoints final segments
   peer!.send(JSON.stringify({ type: "UtteranceEnd" }));
   await waitFor(() => utterances.length > 0);
   assert.deepEqual(utterances, ["can lah"]); assert.equal(errors.length, 0);
+});
+
+test("a listening reply without a usable endpointing refuses the socket before STT opens", async (t) => {
+  let opens = 0; const errors: Error[] = []; let reply: Record<string, unknown> = {};
+  const worker = createMediaWorker({ token, apiUrl: "http://api.test", stt: { provider: "fake", async open() { opens++; return { write() {}, close() {} }; } }, fetch: async () => Response.json(reply), onError: (error) => errors.push(error) });
+  worker.server.listen(0, "127.0.0.1"); await once(worker.server, "listening"); t.after(() => worker.close());
+  const { port } = worker.server.address() as { port: number };
+  for (const endpointingMs of [undefined, 99, 1001, 300.5]) {
+    const windowId = randomUUID();
+    reply = { status: "listening", listenWindowId: windowId, ...(endpointingMs === undefined ? {} : { endpointingMs }) };
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/audio/${randomUUID()}/${windowId}`, { headers: { Authorization: `Bearer ${token}` } });
+    socket.on("error", () => undefined);
+    const status = await new Promise<number>((resolve) => socket.on("unexpected-response", (_request, incoming) => { incoming.resume(); resolve(incoming.statusCode!); socket.terminate(); }));
+    assert.equal(status, 409);
+  }
+  assert.equal(opens, 0); assert.equal(errors.length, 4);
+  assert.match(errors[0].message, /omitted the node's endpointing/);
+  assert.equal((await (await fetch(`http://127.0.0.1:${port}/health`)).json() as { windows: number }).windows, 0);
 });

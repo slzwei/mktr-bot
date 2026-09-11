@@ -1,4 +1,5 @@
 import type { Clip, FlowDefinition, FlowNode } from "../src/lib/domain.js";
+import { endpointingIssue } from "./listen-window.js";
 
 export type FlowValidationResult = {
   valid: boolean;
@@ -23,6 +24,8 @@ export function validateFlow(flow: FlowDefinition, clips: Clip[]): FlowValidatio
 
   for (const node of flow.nodes) {
     if (node.type === "listen" && node.data.noSpeechTimeoutMs !== undefined && (!Number.isSafeInteger(node.data.noSpeechTimeoutMs) || node.data.noSpeechTimeoutMs < 1 || node.data.noSpeechTimeoutMs > 60000)) errors.push(`${node.data.label} needs a listen timeout from 1 to 60000 milliseconds.`);
+    const endpointing = node.type === "listen" ? endpointingIssue(node) : undefined;
+    if (endpointing) errors.push(endpointing);
     if (node.type === "retry") {
       if (node.data.maxAttempts !== undefined && (!Number.isSafeInteger(node.data.maxAttempts) || node.data.maxAttempts < 1 || node.data.maxAttempts > 10)) errors.push(`${node.data.label} needs maxAttempts from 1 to 10.`);
       const queue = flow.edges.filter((edge) => edge.source === node.id).map((edge) => edge.target);

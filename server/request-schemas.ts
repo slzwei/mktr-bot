@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LISTEN_ENDPOINTING } from "../src/lib/domain.js";
 
 const identifier = z.string().min(1).max(160).regex(/^[A-Za-z0-9_.:-]+$/, "Identifiers may contain letters, numbers, dots, colons, dashes and underscores.");
 const condition = z.object({
@@ -25,6 +26,7 @@ export const flowDefinitionSchema = z.object({
       threshold: z.number().min(0).max(1).optional(),
       description: z.string().max(2_000).optional(),
       noSpeechTimeoutMs: z.number().int().min(100).max(60_000).optional(),
+      endpointingMs: z.number().int().min(LISTEN_ENDPOINTING.minMs).max(LISTEN_ENDPOINTING.maxMs).optional(),
       maxAttempts: z.number().int().min(1).max(10).optional()
     }).strict()
   }).strict()).max(250),

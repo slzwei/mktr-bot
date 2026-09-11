@@ -31,7 +31,7 @@ import {
   Repeat2,
   Trash2
 } from "lucide-react";
-import type { Clip, FlowDefinition, FlowNode, FlowNodeKind } from "../lib/domain";
+import { LISTEN_ENDPOINTING, type Clip, type FlowDefinition, type FlowNode, type FlowNodeKind } from "../lib/domain";
 import type { BranchCondition, FlowEdge } from "../lib/domain";
 import { ClipPlayer } from "./ClipPlayer";
 
@@ -60,6 +60,7 @@ function FlowNodeCard({ data, selected }: NodeProps<CanvasNode>) {
       <div className="flow-node__copy">
         <span>{meta.label}</span>
         <strong>{data.label}</strong>
+        {data.kind === "listen" && <small>Endpoint after {data.endpointingMs ?? LISTEN_ENDPOINTING.defaultMs} ms</small>}
         {data.description && <small>{data.description}</small>}
       </div>
       <Handle type="source" position={Position.Right} className="flow-handle" />
@@ -113,7 +114,7 @@ const makeNode = (type: FlowNodeKind, position: { x: number; y: number }): FlowN
   const defaults: Record<FlowNodeKind, FlowNode["data"]> = {
     start: { label: "Start call", description: "Call answered" },
     playClip: { label: "New clip", description: "Select an audio clip" },
-    listen: { label: "Listen for reply", description: "Endpoint after 750 ms" },
+    listen: { label: "Listen for reply" },
     classify: { label: "Classify response", threshold: 0.7, description: "Intent + sentiment" },
     condition: { label: "Check condition", description: "Route by outcome" },
     retry: { label: "Clarify once", maxAttempts: 1, description: "Low confidence fallback" },
@@ -378,6 +379,16 @@ export function FlowCanvas({ flow, clips, selectedNodeId, onSelectedNodeChange, 
                   />
                   <output>{Math.round((selectedNode.data.threshold ?? 0.7) * 100)}%</output>
                 </div>
+              </label>
+            )}
+            {selectedNode.type === "listen" && (
+              <label className="field-label">
+                Endpointing (ms)
+                <input type="number" min={LISTEN_ENDPOINTING.minMs} max={LISTEN_ENDPOINTING.maxMs} step="10" value={selectedNode.data.endpointingMs ?? LISTEN_ENDPOINTING.defaultMs} onChange={(event) => {
+                  const endpointingMs = Number(event.target.value);
+                  if (Number.isInteger(endpointingMs) && endpointingMs >= LISTEN_ENDPOINTING.minMs && endpointingMs <= LISTEN_ENDPOINTING.maxMs) updateSelected({ endpointingMs });
+                }} />
+                <small>Silence after the caller stops before the reply is final. A short window answers quickly but truncates long replies: once the reply is final, the rest of the sentence is dropped. Keep short windows for yes/no questions and lengthen this where callers explain themselves.</small>
               </label>
             )}
             {selectedNode.type === "retry" && (

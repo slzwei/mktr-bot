@@ -46,6 +46,32 @@ test("retry inspector saves its attempt counter and restores it after reload", a
   } finally { await page.request.delete(`/api/flows/${flow.id}`, { headers: await authenticatedHeaders(page) }); }
 });
 
+test("listen inspector saves its endpointing, shows it on the card and restores it after reload", async ({ page }) => {
+  await page.goto("/");
+  const created = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/api/flows"));
+  await page.getByRole("button", { name: "New flow", exact: true }).click();
+  const flow = await (await created).json() as FlowDefinition;
+  try {
+    await expect(page.getByLabel("Current flow")).toHaveValue(flow.id);
+    await page.getByTitle("Add Listen node", { exact: true }).click();
+    const card = page.locator(".react-flow__node").filter({ hasText: "Listen for reply" });
+    await expect(card).toContainText("Endpoint after 300 ms");
+    const endpointing = page.getByRole("spinbutton", { name: "Endpointing", exact: false });
+    await expect(endpointing).toHaveValue("300");
+    await expect(page.getByText("truncates long replies", { exact: false })).toBeVisible();
+    await endpointing.fill("180");
+    await expect(card).toContainText("Endpoint after 180 ms");
+    const saved = page.waitForResponse((response) => response.request().method() === "PUT" && response.url().endsWith(`/api/flows/${flow.id}`));
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const snapshot = await (await saved).json() as FlowDefinition;
+    expect(snapshot.nodes.find((node) => node.type === "listen")?.data.endpointingMs).toBe(180);
+    await page.reload();
+    await page.getByLabel("Current flow").selectOption(flow.id);
+    await card.click();
+    await expect(endpointing).toHaveValue("180");
+  } finally { await page.request.delete(`/api/flows/${flow.id}`, { headers: await authenticatedHeaders(page) }); }
+});
+
 test("Event logs, read-only Settings and authenticated runbook Help render", async ({ page }, testInfo) => {
   const headers = await authenticatedHeaders(page);
   const created = await page.request.post("/api/flows", { headers, data: { name: "Event log fixture" } });

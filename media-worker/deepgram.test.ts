@@ -4,7 +4,8 @@ import { once } from "node:events";
 import type { Duplex } from "node:stream";
 import test, { type TestContext } from "node:test";
 import WebSocket, { WebSocketServer } from "ws";
-import { DeepgramSpeechToText } from "./deepgram.js";
+import { LISTEN_ENDPOINTING } from "../src/lib/domain.js";
+import { DeepgramSpeechToText, deepgramDefaults, deepgramListenUrl } from "./deepgram.js";
 import type { Utterance } from "./speech-to-text.js";
 import { waitFor } from "../server/test-support/fake-esl.js";
 
@@ -103,11 +104,35 @@ test("Deepgram options reach the wire and invalid values are rejected before any
   t.after(async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>((resolve) => server.close(() => resolve())); });
   server.on("connection", (_socket, request) => seen.push(new URL(request.url!, "http://fixture.test").searchParams));
   const endpoint = `ws://127.0.0.1:${(server.address() as { port: number }).port}/v1/listen`;
-  const stream = await new DeepgramSpeechToText({ apiKey: "fake-provider-key", endpoint, model: "nova-2", endpointingMs: 10, utteranceEndMs: 1500, language: "en-GB" }).open({ onUtterance() {}, onError: (error) => assert.fail(error.message) });
+  const provider = new DeepgramSpeechToText({ apiKey: "fake-provider-key", endpoint, model: "nova-2", endpointingMs: 10, utteranceEndMs: 1500, language: "en-GB" });
+  const stream = await provider.open({ onUtterance() {}, onError: (error) => assert.fail(error.message) });
   t.after(() => stream.close());
+  await waitFor(() => seen.length === 1);
   assert.equal(seen[0].get("model"), "nova-2"); assert.equal(seen[0].get("endpointing"), "10"); assert.equal(seen[0].get("utterance_end_ms"), "1500"); assert.equal(seen[0].get("language"), "en-GB");
+  // A listen window carries its node's endpointing, which overrides the constructor value for that socket only.
+  const perWindow = await provider.open({ onUtterance() {}, onError: (error) => assert.fail(error.message) }, undefined, { endpointingMs: 220 });
+  t.after(() => perWindow.close());
+  await waitFor(() => seen.length === 2);
+  assert.equal(seen[1].get("endpointing"), "220"); assert.equal(seen[1].get("utterance_end_ms"), "1500"); assert.equal(seen[1].get("model"), "nova-2");
   for (const options of [{ endpointingMs: -1 }, { endpointingMs: 1.5 }, { utteranceEndMs: 999 }, { model: "../x" }]) {
     await assert.rejects(new DeepgramSpeechToText({ apiKey: "fake-provider-key", endpoint: stalled.endpoint, ...options }).open({ onUtterance() {}, onError() {} }), /Deepgram (endpointing|utterance end|model)/);
   }
   assert.equal(stalled.upgrades(), 0);
+});
+
+test("Deepgram listen URLs come from a bare origin, default to Sydney and refuse cleartext off loopback", () => {
+  assert.equal(deepgramListenUrl(), "wss://api.au.deepgram.com/v1/listen");
+  assert.equal(deepgramListenUrl("https://api.deepgram.com/"), "wss://api.deepgram.com/v1/listen");
+  assert.equal(deepgramListenUrl("wss://api.eu.deepgram.com"), "wss://api.eu.deepgram.com/v1/listen");
+  assert.equal(deepgramListenUrl("http://127.0.0.1:9"), "ws://127.0.0.1:9/v1/listen");
+  assert.equal(deepgramListenUrl("ws://[::1]:9"), "ws://[::1]:9/v1/listen");
+  for (const [value, reason] of [
+    ["api.au.deepgram.com", /absolute origin/], ["ftp://api.au.deepgram.com", /https or wss/], ["http://api.au.deepgram.com", /loopback/],
+    ["https://api.au.deepgram.com/v1/listen", /bare origin/], ["https://user:pw@api.au.deepgram.com", /bare origin/], ["https://api.au.deepgram.com/?model=x", /bare origin/]
+  ] as const) assert.throws(() => deepgramListenUrl(value), reason);
+});
+
+test("the per-node endpointing range stays inside Deepgram's UtteranceEnd fallback and shares its default", () => {
+  assert.ok(LISTEN_ENDPOINTING.maxMs <= deepgramDefaults.utteranceEndMs);
+  assert.equal(deepgramDefaults.endpointingMs, LISTEN_ENDPOINTING.defaultMs);
 });

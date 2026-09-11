@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { DeepgramSpeechToText, deepgramDefaults } from "../media-worker/deepgram.js";
+import { DeepgramSpeechToText, deepgramDefaults, deepgramListenUrl } from "../media-worker/deepgram.js";
 import { detectSpeech, readCapture, replayCapture, type Capture, type ReplayResult } from "../media-worker/replay.js";
 import type { SpeechToText } from "../media-worker/speech-to-text.js";
 
@@ -22,9 +22,10 @@ Deepgram options (defaults are the production values):
   --endpointing-ms <n>       ${deepgramDefaults.endpointingMs}
   --utterance-end-ms <n>     ${deepgramDefaults.utteranceEndMs}
   --language <code>          en-SG
-  --endpoint <wss url>       Alternative listen endpoint (loopback fakes)
+  --endpoint <wss url>       Full listen URL for loopback fakes; otherwise MKTR_DEEPGRAM_BASE_URL or ${deepgramDefaults.baseUrl}
 
-Environment: DEEPGRAM_API_KEY for the deepgram engine. Captures come from a worker started with MKTR_PCM_CAPTURE_ENABLED=true.
+Environment: DEEPGRAM_API_KEY for the deepgram engine; MKTR_DEEPGRAM_BASE_URL selects its region as in production.
+Captures come from a worker started with MKTR_PCM_CAPTURE_ENABLED=true.
 `;
 
 type Values = Record<string, string | boolean | undefined>;
@@ -45,10 +46,10 @@ const engines: Record<string, (values: Values) => { engine: SpeechToText; descri
     const endpointingMs = integer(values, "endpointing-ms", deepgramDefaults.endpointingMs);
     const utteranceEndMs = integer(values, "utterance-end-ms", deepgramDefaults.utteranceEndMs);
     const language = typeof values.language === "string" ? values.language : "en-SG";
-    const endpoint = typeof values.endpoint === "string" ? values.endpoint : undefined;
+    const endpoint = typeof values.endpoint === "string" ? values.endpoint : deepgramListenUrl(process.env.MKTR_DEEPGRAM_BASE_URL || undefined);
     return {
       engine: new DeepgramSpeechToText({ apiKey, language, model, endpointingMs, utteranceEndMs, endpoint }),
-      description: `deepgram ${model} language=${language} endpointing=${endpointingMs}ms utterance_end=${utteranceEndMs}ms`
+      description: `deepgram ${model} language=${language} endpointing=${endpointingMs}ms utterance_end=${utteranceEndMs}ms endpoint=${new URL(endpoint).host}`
     };
   }
 };

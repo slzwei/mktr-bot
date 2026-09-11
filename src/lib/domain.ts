@@ -34,9 +34,14 @@ export type FlowNode = {
     threshold?: number;
     description?: string;
     noSpeechTimeoutMs?: number;
+    endpointingMs?: number;
     maxAttempts?: number;
   };
 };
+
+/** Silence after the caller stops before the speech provider finalizes a listen node's reply.
+ *  The ceiling matches Deepgram's 1000 ms UtteranceEnd fallback, which must not run ahead of the endpoint. */
+export const LISTEN_ENDPOINTING = { defaultMs: 300, minMs: 100, maxMs: 1000 } as const;
 
 export type BranchCondition = {
   intent?: string;

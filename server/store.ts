@@ -81,7 +81,7 @@ const flowNodes: FlowNode[] = [
     id: "listen",
     type: "listen",
     position: { x: 455, y: 260 },
-    data: { label: "Listen for reply", description: "Endpoint after 750 ms" }
+    data: { label: "Listen for reply" }
   },
   {
     id: "classify",
