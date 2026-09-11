@@ -6,10 +6,12 @@ import path from "node:path";
 import test from "node:test";
 import { DOMParser } from "@xmldom/xmldom";
 import { renderFreeSwitch, renderFreeSwitchCli } from "../scripts/render-freeswitch.js";
+import { assertGatewayStartupConfiguration } from "./gateway-security.js";
 
 const fixture = () => ({
   MKTR_GATEWAY_PUBLIC_IP: "203.0.113.10",
-  MKTR_SINGTEL_SIP_PASSWORD: "dummy-render-only<&>\"'secret"
+  MKTR_SINGTEL_SIP_PASSWORD: "dummy-render-only<&>\"'secret",
+  MKTR_FREESWITCH_ESL_PASSWORD: "dummy-esl-render-only<&>\"'secret"
 });
 
 function parseXml(xml: string) {
@@ -60,6 +62,17 @@ test("FreeSWITCH render produces parseable TLS config, escapes credentials and p
     assert.equal(settings["tls-sip-port"], "5061");
     assert.equal(settings["tls-verify-policy"], "out|subjects_out");
     assert.equal(settings["tls-cert-dir"], "/etc/freeswitch/tls");
+    const socket = parseXml(await readFile(path.join(outputDirectory, "autoload_configs/event_socket.conf.xml"), "utf8"));
+    const socketSettings = Object.fromEntries(Array.from(socket.getElementsByTagName("param")).map((param) => [param.getAttribute("name"), param.getAttribute("value")]));
+    assert.equal(socketSettings["password"], environment.MKTR_FREESWITCH_ESL_PASSWORD);
+    assert.equal(socketSettings["listen-ip"], "172.29.80.4");
+    assert.equal(socketSettings["apply-inbound-acl"], "mktr-esl");
+    const acl = parseXml(await readFile(path.join(outputDirectory, "autoload_configs/acl.conf.xml"), "utf8"));
+    const list = Array.from(acl.getElementsByTagName("list")).find((entry) => entry.getAttribute("name") === "mktr-esl");
+    assert.equal(list?.getAttribute("default"), "deny");
+    assert.deepEqual(Array.from(list!.getElementsByTagName("node")).map((entry) => [entry.getAttribute("type"), entry.getAttribute("cidr")]), [
+      ["allow", "172.29.80.2/32"], ["allow", "172.29.80.3/32"]
+    ]);
     const vars = await readFile(path.join(outputDirectory, "vars.xml"), "utf8");
     assert.match(vars, /external_sip_ip=203\.0\.113\.10/);
     assert.match(vars, /external_rtp_ip=203\.0\.113\.10/);
@@ -95,4 +108,19 @@ test("FreeSWITCH compose publishes exactly the configured local RTP range and no
   assert.ok(gatewayService.includes(`"${range}:${range}/udp"`));
   assert.match(gatewayService, /5061:5061\/tcp/);
   assert.doesNotMatch(gatewayService, /5060:5060|5080:5080/);
+  assert.doesNotMatch(gatewayService, /8021:8021/);
+});
+
+test("FreeSWITCH startup rejects default, short and framed ESL passwords through the pure config guard", () => {
+  for (const password of ["", "ClueCon", "cluecon", "123456789012345", "long-enough-but\ninjected"]) {
+    assert.throws(() => assertGatewayStartupConfiguration({ telephonyMode: "freeswitch", freeswitch: { password } }), /MKTR_FREESWITCH_ESL_PASSWORD/);
+  }
+  assert.doesNotThrow(() => assertGatewayStartupConfiguration({ telephonyMode: "freeswitch", freeswitch: { password: "strong-test-fixture-only" } }));
+  assert.doesNotThrow(() => assertGatewayStartupConfiguration({ telephonyMode: "simulated", freeswitch: { password: "" } }));
+});
+
+test("FreeSWITCH renderer rejects a weak ESL password and wildcard ACL addresses before creating files", async () => {
+  await assert.rejects(renderFreeSwitch({ ...fixture(), MKTR_FREESWITCH_ESL_PASSWORD: "ClueCon" }, { dryRun: true }), /MKTR_FREESWITCH_ESL_PASSWORD/);
+  await assert.rejects(renderFreeSwitch({ ...fixture(), MKTR_API_TELEPHONY_IP: "0.0.0.0" }, { dryRun: true }), /distinct container interface addresses/);
+  await assert.rejects(renderFreeSwitch({ ...fixture(), MKTR_API_TELEPHONY_IP: "172.29.80.4" }, { dryRun: true }), /distinct container interface addresses/);
 });

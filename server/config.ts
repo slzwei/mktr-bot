@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { ClassifierMode, TelephonyMode } from "../src/lib/domain.js";
+import { assertGatewayStartupConfiguration } from "./gateway-security.js";
 
 const int = (value: string | undefined, fallback: number) => {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -43,6 +44,9 @@ export const config = {
     mediaDirectory: process.env.MKTR_FREESWITCH_MEDIA_DIR ?? "/var/lib/freeswitch/recordings/mktr"
   }
 };
+
+// This runs before any adapter/socket is created by the API startup path.
+assertGatewayStartupConfiguration(config);
 
 export function isProductionGatewayConfigured(): boolean {
   return Boolean(

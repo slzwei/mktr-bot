@@ -44,8 +44,8 @@ Done when: The repo ships a complete `telephony/freeswitch/conf` overlay mounted
 Verify: `docker compose --profile live config` validates. On a host with credentials, `fs_cli -x "sofia status gateway singtel"` shows `REGED` and `sofia status profile external` shows TLS on 5061 (operator step, recorded in the runbook).
 
 ### A5. ESL lockdown
-Status: todo
-Evidence: 2026-09-11 audit: `docker-compose.yml:67` still publishes `8021:8021/tcp`; no event_socket/ACL overlay or password rendering exists, and `server/config.ts:45` checks password presence rather than rejecting weak values. The weak-password config test is absent. Live-profile config inspection is unavailable because Docker is missing; install Docker/Compose and implement the overlay/guard/test before rerunning this credential-free verification. The image's actual runtime password was not verified.
+Status: doing
+Evidence: Implementation complete: startup-rendered event_socket password, private-interface bind, deny-by-default ACL for API/worker /32s, and no 8021 publication are in place; `FreeSWITCH startup rejects default, short and framed ESL passwords through the pure config guard` and rendered XML/ACL tests pass (`npm run test:freeswitch` 6/6, `npm test` 10/10, build passes). Only Docker-dependent Verify remains blocked: Docker not installed on host; Shawn must install Docker/Compose and run `docker compose --profile live config` to verify the resolved publication list. No real ESL socket was opened.
 Why: FreeSWITCH still uses the default `ClueCon` password and compose publishes port 8021 to the host. Anyone who reaches it can originate calls on the trunk.
 Done when: `event_socket.conf.xml` in the overlay takes its password from `MKTR_FREESWITCH_ESL_PASSWORD` at start, `listen-ip` is the container network interface only, `apply-inbound-acl` restricts access to the api and media-worker services, and the `8021` port mapping is removed from compose. The api refuses to start in freeswitch mode if the password is `ClueCon` or shorter than 16 characters.
 Verify: `docker compose --profile live config` shows no published 8021 port. A config test asserts the weak-password guard.

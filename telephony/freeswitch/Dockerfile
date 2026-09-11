@@ -4,6 +4,7 @@ WORKDIR /build
 COPY package*.json ./
 RUN npm ci
 COPY scripts/render-freeswitch.ts ./scripts/render-freeswitch.ts
+COPY server/gateway-security.ts ./server/gateway-security.ts
 RUN ./node_modules/.bin/tsc scripts/render-freeswitch.ts --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck --outDir /renderer
 
 FROM debian:bookworm-slim AS builder
@@ -27,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtiff6 libuuid1 openssl zlib1g && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/ /usr/local/
 COPY --from=builder /etc/ld.so.conf.d/mktr-freeswitch.conf /etc/ld.so.conf.d/mktr-freeswitch.conf
-COPY --from=renderer /renderer/render-freeswitch.js /opt/mktr/render-freeswitch.js
+COPY --from=renderer /renderer/ /opt/mktr/
 COPY telephony/freeswitch/conf /opt/mktr/freeswitch-conf
 COPY telephony/freeswitch/entrypoint.sh /usr/local/bin/mktr-freeswitch
 RUN ldconfig && \

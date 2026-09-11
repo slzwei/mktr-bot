@@ -108,6 +108,9 @@ services:
       MKTR_SINGTEL_CA_CERT_PATH: /run/secrets/singtel-ca
       MKTR_FREESWITCH_TLS_PEM_PATH: /run/secrets/freeswitch-agent
       MKTR_FREESWITCH_BIND_IP: 172.29.80.4
+      MKTR_API_TELEPHONY_IP: 172.29.80.2
+      MKTR_MEDIA_WORKER_TELEPHONY_IP: 172.29.80.3
+      MKTR_FREESWITCH_ESL_PASSWORD: ${MKTR_FREESWITCH_ESL_PASSWORD:-}
     networks:
       telephony:
         ipv4_address: 172.29.80.4

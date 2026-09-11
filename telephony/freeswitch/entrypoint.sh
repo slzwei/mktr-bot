@@ -1,5 +1,5 @@
 #!/bin/sh
 set -eu
 umask 077
-node /opt/mktr/render-freeswitch.js
+node /opt/mktr/scripts/render-freeswitch.js
 exec "$@"

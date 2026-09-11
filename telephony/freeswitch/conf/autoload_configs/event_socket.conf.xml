@@ -1,0 +1,10 @@
+<configuration name="event_socket.conf" description="Private authenticated MKTR ESL">
+  <settings>
+    <param name="nat-map" value="false"/>
+    <param name="listen-ip" value="@@MKTR_FREESWITCH_BIND_IP@@"/>
+    <param name="listen-port" value="8021"/>
+    <param name="password" value="@@MKTR_FREESWITCH_ESL_PASSWORD@@"/>
+    <param name="apply-inbound-acl" value="mktr-esl"/>
+    <param name="stop-on-bind-error" value="true"/>
+  </settings>
+</configuration>
