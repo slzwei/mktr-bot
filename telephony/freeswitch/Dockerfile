@@ -16,7 +16,7 @@ ARG SPANDSP_REF=8f1e1646bdec99eac5fd2cd92c35563f736b9b89
 ARG AUDIO_STREAM_REF=5eb685ed9b179ce259946307a58cb6d65eadf783
 RUN apt-get update && apt-get install -y --no-install-recommends \
     autoconf automake build-essential ca-certificates cmake git libtool libtool-bin pkg-config \
-    libcurl4-openssl-dev libedit-dev libevent-dev libjpeg-dev libopus-dev libpcre3-dev \
+    libcurl4-openssl-dev libedit-dev libevent-dev libjpeg-dev libopus-dev libpcre2-dev \
     libpng-dev libsndfile1-dev libspeex-dev libspeexdsp-dev libsqlite3-dev libssl-dev \
     libtiff-dev uuid-dev zlib1g-dev && rm -rf /var/lib/apt/lists/*
 COPY telephony/freeswitch/build-source.sh /usr/local/bin/build-source
@@ -26,7 +26,7 @@ RUN /usr/local/bin/build-source
 FROM node:24.14.0-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libcurl4 libedit2 libevent-2.1-7 libevent-openssl-2.1-7 libjpeg62-turbo \
-    libopus0 libpcre3 libpng16-16 libsndfile1 libspeex1 libspeexdsp1 libsqlite3-0 libssl3 \
+    libopus0 libpcre2-8-0 libpng16-16 libsndfile1 libspeex1 libspeexdsp1 libsqlite3-0 libssl3 \
     libtiff6 libuuid1 openssl zlib1g && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/ /usr/local/
 COPY --from=builder /etc/ld.so.conf.d/mktr-freeswitch.conf /etc/ld.so.conf.d/mktr-freeswitch.conf
