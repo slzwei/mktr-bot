@@ -63,6 +63,8 @@ Node is pinned to `24.14.0` in `engines.node`, `.nvmrc`, the application images 
 
 See `docs/backups.md` for the consistent database/clip backup, restore procedure and completed native PostgreSQL drill. `npm run test:backup` creates and removes only its own disposable localhost database cluster. Container user/backup validation and a default-branch CI run require Docker and a connected GitHub remote, respectively.
 
+The source repository is [slzwei/mktr-bot](https://github.com/slzwei/mktr-bot), with [GitHub Actions verification](https://github.com/slzwei/mktr-bot/actions). `npm run test:containers` uses the built `mktr-voice-control:ci` and `mktr-media-worker:ci` images to exercise production startup, migrations, non-root Node PID 1, healthchecks, authentication and clean shutdown. It creates its own internal Docker network and disposable PostgreSQL 16 container, fixes telephony to simulator mode, and removes only those fixtures. Docker is required; no gateway, real provider credentials or calls are involved.
+
 Browser verification first signs in with a process-generated fixture password, then shares the resulting secure session with the Chromium tests. Override `MKTR_E2E_API_PORT` and `MKTR_E2E_WEB_PORT` for an isolated parallel run. Session state is under ignored `test-results/`.
 
 The restart browser test creates its own native Postgres cluster, signs in two browser contexts, observes the 15-second stream heartbeat, crashes and restarts only its simulator API, and verifies the open console recovers and both operators see the same call count. It generates fixture credentials in memory and removes its own database and temporary files. It never connects to a SIP trunk.

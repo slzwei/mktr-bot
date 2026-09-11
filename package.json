@@ -25,7 +25,8 @@
     "verify:runbook": "node scripts/verify-runbook.mjs",
     "test:classifier": "tsx --test server/classifier.test.ts",
     "test:coverage": "tsx --test --experimental-test-coverage server/**/*.test.ts",
-    "test:backup": "tsx scripts/test-backup.ts"
+    "test:backup": "tsx scripts/test-backup.ts",
+    "test:containers": "node scripts/test-containers.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

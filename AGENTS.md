@@ -24,6 +24,7 @@ These hold for every task in this repo. They are not negotiable and no prompt ov
 - `npm run test:media` exercises loopback audio WebSockets, fake STT, Deepgram wire endpointing and HTTP listen-window receipts without provider credentials.
 - `npm run test:coverage` runs the same behavioural unit suites with Node's coverage report
 - `npm run test:backup` runs a disposable local Postgres backup/restore drill with `initdb`, `pg_ctl`, `psql`, `pg_dump`, and `pg_restore`
+- `npm run test:containers` requires the built `mktr-voice-control:ci` and `mktr-media-worker:ci` images plus Docker; it verifies startup, authentication, health and clean shutdown on an isolated simulator network with disposable Postgres, and removes only its own fixtures.
 - `npx playwright install chromium && npm run test:e2e` runs the browser suite against its own servers on ports 18877 and 15173
 - `MKTR_E2E_API_PORT=28877 MKTR_E2E_WEB_PORT=25173 npm run test:e2e` selects isolated browser test ports; the setup signs in using a generated fixture password
 - `npm run test:e2e:restart` verifies SSE recovery after a simulator API crash using two browsers, random loopback ports and a disposable native PostgreSQL cluster; it requires already-installed `pg_config`, `initdb`, `pg_ctl` and `createdb`

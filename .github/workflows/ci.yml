@@ -47,6 +47,8 @@ jobs:
           test "$(docker run --rm mktr-voice-control:ci id -u)" != 0
       - name: Build media worker
         run: docker build -f media-worker/Dockerfile -t mktr-media-worker:ci .
+      - name: Verify isolated container startup, health, authentication and shutdown
+        run: npm run test:containers
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
