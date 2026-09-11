@@ -56,6 +56,11 @@ export class CallOrchestrator {
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly listenTimers = new Map<string, NodeJS.Timeout>();
   private readonly unsubscribeAdapter?: () => void;
+  private readonly unsubscribeConnection?: () => void;
+  private stopping = false;
+  private initialized = false;
+  private reconciling = false;
+  private reconciliation?: Promise<void>;
 
   constructor(
     private readonly store: InMemoryStore,
@@ -69,6 +74,48 @@ export class CallOrchestrator {
         console.error("Telephony event handling failed", { providerCallId: event.providerCallId, error });
       });
     });
+    this.unsubscribeConnection = adapter.onConnection?.((connected) => {
+      if (!this.initialized || this.stopping) return;
+      this.reconciling = true;
+      if (connected) void this.reconcile("ESL_RECONNECTED").catch((error: unknown) => console.error("ESL reconciliation failed; dialing disabled", { error }));
+    });
+  }
+
+  async initialize(): Promise<void> {
+    await this.reconcile("SERVICE_RESTART");
+    this.initialized = true;
+  }
+
+  private reconcile(reason: string): Promise<void> {
+    if (this.reconciliation) return this.reconciliation;
+    this.reconciling = true;
+    const operation = (async () => {
+      const channels = this.adapter.mode === "freeswitch" ? await this.adapter.listChannels?.() : [];
+      if (this.adapter.mode === "freeswitch" && !channels) throw new Error("Live adapter cannot reconcile channels.");
+      const active = this.store.listCalls().filter((call) => activeStatuses.has(call.status));
+      const known = new Set(active.map((call) => call.providerCallId));
+      for (const channel of channels ?? []) {
+        if (channel.callerName === "MKTR" && !known.has(channel.providerCallId)) await this.adapter.hangup(channel.providerCallId);
+      }
+      const remote = new Set((channels ?? []).map((channel) => channel.providerCallId));
+      for (const call of active) {
+        if (remote.has(call.providerCallId)) await this.finish(call, "failed", reason);
+        else this.complete(call, "failed", reason);
+      }
+      this.reconciling = false;
+    })();
+    this.reconciliation = operation;
+    void operation.then(() => { this.reconciliation = undefined; }, () => { this.reconciliation = undefined; });
+    return operation;
+  }
+
+  async shutdown(): Promise<void> {
+    this.stopping = true;
+    const results = await Promise.allSettled(this.store.listCalls().filter((call) => activeStatuses.has(call.status)).map((call) => this.finish(call, "ended", "SERVICE_SHUTDOWN")));
+    this.unsubscribeAdapter?.(); this.unsubscribeConnection?.();
+    await this.adapter.close?.();
+    const errors = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, "Some provider hangups were not confirmed during shutdown.");
   }
 
   activeCallCount(): number {
@@ -76,6 +123,7 @@ export class CallOrchestrator {
   }
 
   async start(input: TestCallInput): Promise<CallSession> {
+    if (this.stopping || this.reconciling) throw new Error("Call service is reconciling or shutting down.");
     assertAllowedCallerId(input.callerId);
     if (!/^\+[1-9]\d{7,14}$/.test(input.destination)) {
       throw new Error("Destination must use E.164 format, for example +6591234567.");
@@ -119,7 +167,7 @@ export class CallOrchestrator {
         current.providerCallId = provider.providerCallId;
         this.persist(current);
       }
-      if (this.adapter.mode === "simulated") {
+      if (this.adapter.mode === "simulated" && activeStatuses.has(current.status) && !this.stopping) {
         this.runSimulation(session.id, input.scenario ?? "interested");
       }
       return this.store.getCall(session.id) ?? session;
@@ -150,6 +198,7 @@ export class CallOrchestrator {
     const session = this.store.getCall(id);
     if (!session) throw new Error("Call not found.");
     if (!activeStatuses.has(session.status)) return session;
+    if (this.stopping || this.reconciling || this.terminations.has(id)) return session;
     if (["answered", "playing", "listening", "classifying"].includes(session.status)) {
       return session;
     }
@@ -266,7 +315,7 @@ export class CallOrchestrator {
     result = session.classifierResult,
     visited = new Set<string>()
   ): Promise<void> {
-    if (!activeStatuses.has(session.status)) return;
+    if (!activeStatuses.has(session.status) || !activeStatuses.has(this.store.getCall(session.id)?.status ?? "ended") || this.terminations.has(session.id) || this.stopping || this.reconciling) return;
     this.incrementTraversal(session);
     if (visited.has(nodeId)) {
       throw new Error("The flow has a loop with no listen or clip boundary.");
@@ -327,6 +376,7 @@ export class CallOrchestrator {
     }
 
     if (node.type === "end") {
+      this.persist(session);
       await this.finish(session, "ended", "Flow completed");
       return;
     }
@@ -345,6 +395,7 @@ export class CallOrchestrator {
       node.id
     );
     await this.adapter.startListening?.(session.providerCallId, session.id, session.listenWindowId);
+    if (!activeStatuses.has(this.store.getCall(session.id)?.status ?? "ended") || this.terminations.has(session.id)) return;
     const windowId = session.listenWindowId;
     const timeout = node.data.noSpeechTimeoutMs ?? 6000;
     if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Listen timeout must be from 1 to 60000 milliseconds.");
@@ -604,6 +655,7 @@ export class CallOrchestrator {
       this.complete(session, "ended", event.cause ?? "NORMAL_CLEARING");
       return;
     }
+    if (this.stopping || this.reconciling) return;
     await this.enqueue(session.id, async () => {
       const current = this.store.getCall(session.id);
       if (!current || !activeStatuses.has(current.status) || this.terminations.has(current.id)) return;

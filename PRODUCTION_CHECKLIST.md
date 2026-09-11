@@ -51,8 +51,8 @@ Done when: `event_socket.conf.xml` in the overlay takes its password from `MKTR_
 Verify: `docker compose --profile live config` shows no published 8021 port. A config test asserts the weak-password guard.
 
 ### A6. Graceful shutdown and orphan reconciliation
-Status: todo
-Evidence: 2026-09-11 audit: `server/index.ts:188` starts without SIGTERM/SIGINT shutdown or boot channel reconciliation, compose has no stop_grace_period, and `Dockerfile:24` runs npm. A public orchestrator probe with a fake simulated adapter completed a flow with `status: ended`, active count 0, and zero provider hangups (`server/orchestrator.ts:437`). The two-call SIGTERM/uuid_kill test is absent; docker stop timing is not verifiable without Docker and a built isolated test container.
+Status: done
+Evidence: `SIGTERM drains two active fake channels with exactly two uuid_kill commands and exits before grace expires` passes in ~0.17 s; boot orphan identity filtering and disconnect/reconnect reconciliation tests pass; `npm test` 37/37 and build pass. Direct Node CMD and 20 s grace are configured. Docker-dependent stop timing Verify blocked: Docker not installed on host; no real call/channel was used.
 Why: An API restart mid-call leaves a parked billable channel on the Singtel trunk with nothing to hang it up.
 Done when: A SIGTERM and SIGINT handler stops accepting requests, hangs up every active `providerCallId`, closes SSE streams, and exits within the compose `stop_grace_period`. On boot in freeswitch mode the api runs `show channels` and kills any channel with `origination_caller_id_name=MKTR` that the store does not know. The Dockerfile runs node directly or via tini, not `npm run start`.
 Verify: A test sends SIGTERM with two active fake calls and asserts two `uuid_kill` commands. `docker stop` completes without the 10 s kill.

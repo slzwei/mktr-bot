@@ -26,3 +26,9 @@ FreeSWITCH starts `mod_audio_stream` only after a UUID listen window is persiste
 ## Time limits (A3)
 
 Listen windows default to 6000 ms and use the explicit fallback on silence. Retry nodes default to one attempt, require an explicit counter when they can reach a listen, and end the call on exhaustion unless an exhaustion fallback is supplied. Both provider-owned originate/answer timers and API deadlines enforce 30-second answer and 180-second answered-call limits, so ESL/API disruption cannot leave an indefinitely parked call. Invalid capacity (outside 1–5) and timeout environment values fail startup instead of weakening the guards.
+
+## Restart and shutdown (A6)
+
+A restart or ESL reconnection terminates interrupted MKTR calls instead of guessing which media event was missed. The API inventories channels, checks the exact `origination_caller_id_name` variable, kills unknown MKTR UUIDs, preserves unrelated channels, and records interrupted stored calls as failed. New dials remain disabled if inventory or cleanup fails. SIGTERM/SIGINT stop listeners and SSE, send one idempotent hangup per active call, close ESL, and use a 15-second process deadline within Compose's 20-second grace period. FreeSWITCH's independently scheduled duration limit is the last bound if ESL cannot confirm shutdown. The API runs Node directly as PID 1.
+
+Channel inventory and variable inspection use the [FreeSWITCH API command interface](https://developer.signalwire.com/freeswitch/reference/cli-and-api/); behavior here is verified against fake ESL only.

@@ -21,4 +21,4 @@ COPY --from=build /app/.server-dist ./.server-dist
 RUN mkdir -p /app/storage/clips
 
 EXPOSE 8787
-CMD ["npm", "run", "start"]
+CMD ["node", ".server-dist/server/index.js"]

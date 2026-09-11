@@ -18,6 +18,7 @@ export class FakeEslServer {
   connections = 0;
   port = 0;
   response = "+OK";
+  respond?: (command: string) => string;
   private sequence = 0;
   private readonly server = net.createServer((socket) => {
     this.connections++;
@@ -40,7 +41,7 @@ export class FakeEslServer {
           const job = randomUUID();
           this.jobs.set(uuid, job);
           socket.write(`Content-Type: command/reply\nReply-Text: +OK Job-UUID: ${job}\nJob-UUID: ${job}\n\n`);
-        } else this.frame(socket, "api/response", this.response);
+        } else this.frame(socket, "api/response", this.respond?.(command) ?? this.response);
       }
     });
   });

@@ -6,6 +6,7 @@ import { CALLER_IDS, RESERVED_CALLER_ID } from "../src/lib/domain.js";
 import { config, isProductionGatewayConfigured } from "./config.js";
 
 export type TelephonyCall = { providerCallId: string };
+export type ProviderChannel = { providerCallId: string; callerName: string };
 export type TelephonyEvent = {
   type: "dialing" | "ringing" | "answered" | "hangup" | "playbackStopped" | "originateFailed";
   providerCallId: string;
@@ -20,6 +21,8 @@ export interface TelephonyAdapter {
   hangup(providerCallId: string): Promise<void>;
   startListening?(providerCallId: string, callId: string, windowId: string): Promise<void>;
   stopListening?(providerCallId: string): Promise<void>;
+  listChannels?(): Promise<ProviderChannel[]>;
+  onConnection?(listener: (connected: boolean) => void): () => void;
   onEvent?(listener: (event: TelephonyEvent) => void): () => void;
   close?(): void | Promise<void>;
 }
@@ -52,6 +55,25 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
   onEvent(listener: (event: TelephonyEvent) => void): () => void {
     this.events.on("event", listener);
     return () => this.events.off("event", listener);
+  }
+
+  onConnection(listener: (connected: boolean) => void): () => void { return this.client.onConnection(listener); }
+
+  async listChannels(): Promise<ProviderChannel[]> {
+    const frame = await this.client.command("api show channels as json");
+    const value = JSON.parse(frame.body) as { rows?: { uuid?: string }[]; row_count?: number };
+    if ((!Array.isArray(value.rows) && value.row_count !== 0) || (value.rows?.length ?? 0) > 1000) throw new Error("Invalid FreeSWITCH channel inventory.");
+    const channels: ProviderChannel[] = [];
+    for (const row of value.rows ?? []) {
+      this.assertUuid(row.uuid ?? "");
+      try {
+        const identity = await this.client.command(`api uuid_getvar ${row.uuid} origination_caller_id_name`);
+        channels.push({ providerCallId: row.uuid!, callerName: identity.body.trim() });
+      } catch (error) {
+        if (!(error instanceof EslCommandError) || !/No such channel|invalid uuid/i.test(error.reply)) throw error;
+      }
+    }
+    return channels;
   }
 
   async originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId = randomUUID()): Promise<TelephonyCall> {
