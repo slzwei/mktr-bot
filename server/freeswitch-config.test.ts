@@ -85,6 +85,13 @@ test("FreeSWITCH render produces parseable TLS config, escapes credentials and p
     assert.equal(avmdSettings.outbound_channel, "1");
     assert.equal(avmdSettings.inbound_channel, "0");
     assert.equal(avmdSettings.detection_mode, "2");
+    // With report_status 0 a successful "avmd <uuid> start" writes nothing and FreeSWITCH
+    // answers the ESL api call with "-ERR no reply", which the adapter treats as failure.
+    assert.equal(avmdSettings.report_status, "1");
+    const gateways = Array.from(profile.getElementsByTagName("gateways"));
+    assert.equal(gateways.length, 1);
+    const include = Array.from(gateways[0].getElementsByTagName("X-PRE-PROCESS")).find((entry) => entry.getAttribute("cmd") === "include");
+    assert.equal(include?.getAttribute("data"), "external/*.xml");
     const socket = parseXml(await readFile(path.join(outputDirectory, "autoload_configs/event_socket.conf.xml"), "utf8"));
     const socketSettings = Object.fromEntries(Array.from(socket.getElementsByTagName("param")).map((param) => [param.getAttribute("name"), param.getAttribute("value")]));
     assert.equal(socketSettings["password"], environment.MKTR_FREESWITCH_ESL_PASSWORD);
@@ -118,6 +125,24 @@ test("FreeSWITCH render fails before creating output when secrets or public IP a
     await assert.rejects(stat(outputDirectory), { code: "ENOENT" });
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("FreeSWITCH templates keep every X-PRE-PROCESS directive on a line of its own", async () => {
+  // The FreeSWITCH preprocessor discards the rest of any line that carries an X-PRE-PROCESS tag.
+  // "<gateways><X-PRE-PROCESS .../></gateways>" on one line silently drops both wrapper tags, so the
+  // gateway loads outside <gateways> and mod_sofia never registers it ("Invalid Gateway!").
+  const root = "telephony/freeswitch/conf";
+  const { readdir } = await import("node:fs/promises");
+  const files = (await readdir(root, { recursive: true })).filter((name) => name.endsWith(".xml"));
+  assert.ok(files.length >= 10);
+  for (const name of files) {
+    const lines = (await readFile(path.join(root, name), "utf8")).split("\n");
+    lines.forEach((line, index) => {
+      if (!line.includes("<X-PRE-PROCESS")) return;
+      const others = line.replace(/<X-PRE-PROCESS[^>]*\/>/g, "").replace(/<!--.*?-->/g, "");
+      assert.equal(others.includes("<"), false, `${name}:${index + 1} places another tag on an X-PRE-PROCESS line`);
+    });
   }
 });
 

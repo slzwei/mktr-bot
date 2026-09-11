@@ -1,5 +1,8 @@
 <profile name="external">
-  <gateways><X-PRE-PROCESS cmd="include" data="external/*.xml"/></gateways>
+  <gateways>
+    <!-- The include must sit on its own line: FreeSWITCH discards the rest of any line that carries an X-PRE-PROCESS tag. -->
+    <X-PRE-PROCESS cmd="include" data="external/*.xml"/>
+  </gateways>
   <settings>
     <param name="shutdown-on-fail" value="true"/>
     <param name="sip-trace" value="no"/>
