@@ -38,9 +38,12 @@ test("Deepgram final latency follows the word end across silence and includes bu
   for (let arrival = 1020; arrival <= 1800; arrival += 20) stream.write(Buffer.alloc(320), arrival);
   time = 1850;
   await waitFor(() => fake.bytes() === 13_120);
+  // Real Deepgram wire shapes: Metadata first, SpeechStarted and UtteranceEnd carry `channel` as an index array.
+  fake.peer().send(JSON.stringify({ type: "Metadata", transaction_key: "deprecated", request_id: "req-1", sha256: "x", created: "2026-09-11T00:00:00Z", duration: 0, channels: 1 }));
+  fake.peer().send(JSON.stringify({ type: "SpeechStarted", channel: [0, 1], timestamp: 0.01 }));
   fake.peer().send(JSON.stringify(final("can lah", 0.02)));
   fake.peer().send(JSON.stringify(final("duplicate after end", 0.02)));
-  fake.peer().send(JSON.stringify({ type: "UtteranceEnd", last_word_end: 0.02 }));
+  fake.peer().send(JSON.stringify({ type: "UtteranceEnd", channel: [0, 1], last_word_end: 0.02 }));
   await waitFor(() => utterances.length === 1);
   assert.deepEqual(utterances, [{ transcript: "can lah", latencyMs: 850 }]);
 });

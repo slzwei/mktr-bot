@@ -2,13 +2,19 @@ import WebSocket from "ws";
 import { z } from "zod";
 import type { SpeechCallbacks, SpeechStream, SpeechToText } from "./speech-to-text.js";
 
+const alternativesSchema = z.object({ alternatives: z.array(z.object({
+  transcript: z.string().max(2000), words: z.array(z.object({ end: z.number().finite().nonnegative() })).max(2000).optional()
+})).max(5) });
+
+// Deepgram's live API uses one field name for two shapes: Results carries `channel`
+// as an object of alternatives, while UtteranceEnd and SpeechStarted carry it as a
+// channel index array such as [0, 1]. Both must parse or a real call fails at the
+// first end-of-utterance marker.
 const resultSchema = z.object({
   type: z.string(), is_final: z.boolean().optional(), speech_final: z.boolean().optional(),
   start: z.number().finite().nonnegative().optional(), duration: z.number().finite().nonnegative().optional(),
   last_word_end: z.number().finite().optional(),
-  channel: z.object({ alternatives: z.array(z.object({
-    transcript: z.string().max(2000), words: z.array(z.object({ end: z.number().finite().nonnegative() })).max(2000).optional()
-  })).max(5) }).optional()
+  channel: z.union([alternativesSchema, z.array(z.number().int().nonnegative()).max(8)]).optional()
 });
 
 export class DeepgramSpeechToText implements SpeechToText {
@@ -77,7 +83,7 @@ export class DeepgramSpeechToText implements SpeechToText {
       try {
         const result = resultSchema.parse(JSON.parse(data.toString()));
         if (result.type === "Results") {
-          const alternative = result.channel?.alternatives[0];
+          const alternative = Array.isArray(result.channel) ? undefined : result.channel?.alternatives[0];
           const transcript = alternative?.transcript.trim();
           const key = `${result.start}:${result.duration}:${transcript}`;
           if (result.is_final && transcript && !seen.has(key)) {
