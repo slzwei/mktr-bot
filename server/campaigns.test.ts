@@ -11,7 +11,7 @@ import { CampaignDialer, campaignDetail, createCampaign, DEFAULT_CALLING_HOURS, 
 import { RuleClassifier } from "./classifier.js";
 import { importContacts, normalizePhone } from "./contacts.js";
 import { EslClient } from "./esl.js";
-import { CallOrchestrator } from "./orchestrator.js";
+import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
 import { InMemoryStore } from "./store.js";
 import { FakeEslServer, fixtureEslPassword, waitFor } from "./test-support/fake-esl.js";
 import { FreeSwitchEslAdapter } from "./telephony.js";

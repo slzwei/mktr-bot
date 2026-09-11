@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { InMemoryStore } from "./store.js";
-import { CallOrchestrator } from "./orchestrator.js";
+import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
 import { createApp } from "./app.js";
 import { InMemoryAuthStore } from "./auth.js";
 import { RuleClassifier } from "./classifier.js";

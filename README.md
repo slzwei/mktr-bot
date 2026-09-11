@@ -107,3 +107,5 @@ The separate `media-worker` receives authenticated callee-only PCM WebSockets fr
 Listen nodes accept `noSpeechTimeoutMs` (default 6000) and retry nodes accept `maxAttempts` (default 1). Set `MKTR_ORIGINATE_TIMEOUT_SECONDS` and `MKTR_MAX_CALL_SECONDS` for answer and connected-call limits; the defaults are 30 and 180. First-call limits belong in the operator runbook.
 
 On API startup or ESL reconnection, MKTR channels and stored active calls are reconciled before dialing is allowed. Interrupted calls terminate with a recorded restart reason. SIGTERM/SIGINT drain active channels within the 20-second Compose grace period; unconfirmed hangups are logged and the independent provider duration limit remains in force.
+
+Every console/campaign dial, including the simulator, now requires recorded voice consent or a fresh affirmative DNC result. Record actual evidence in Campaigns; imported CSV rows do not grant permission. Clearances expire after 21 days, and explicit voice opt-outs prevent subsequent attempts. See `docs/compliance.md` for the relied-on basis and operator workflow. Automated tests use isolated fixture evidence only.

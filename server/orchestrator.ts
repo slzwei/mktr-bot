@@ -1,3 +1,4 @@
+import { ConsentPolicy, DialConsentError, isVoiceOptOut, type DialPolicy } from "./compliance.js";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type {
@@ -69,7 +70,8 @@ export class CallOrchestrator {
     private readonly adapter: TelephonyAdapter,
     private readonly classifier: TranscriptClassifier = createTranscriptClassifier(),
     private readonly playbackDelay: PlaybackDelay = defaultPlaybackDelay,
-    private readonly deadlines = { originateTimeoutMs: config.originateTimeoutSeconds * 1000, maxCallMs: config.maxCallSeconds * 1000 }
+    private readonly deadlines = { originateTimeoutMs: config.originateTimeoutSeconds * 1000, maxCallMs: config.maxCallSeconds * 1000 },
+    private readonly dialPolicy: DialPolicy = new ConsentPolicy(store)
   ) {
     for (const session of store.listCalls().filter((call) => activeStatuses.has(call.status))) {
       const graph = store.getFlowVersion(session.flowId, session.flowVersion);
@@ -116,8 +118,10 @@ export class CallOrchestrator {
     return operation;
   }
 
+  beginShutdown(): void { this.stopping = true; }
+
   async shutdown(): Promise<void> {
-    this.stopping = true;
+    this.beginShutdown();
     const results = await Promise.allSettled(this.store.listCalls().filter((call) => activeStatuses.has(call.status)).map((call) => this.finish(call, "ended", "SERVICE_SHUTDOWN")));
     this.unsubscribeAdapter?.(); this.unsubscribeConnection?.();
     await this.adapter.close?.();
@@ -139,6 +143,7 @@ export class CallOrchestrator {
     if (this.activeCallCount() + this.pendingStarts >= Math.min(5, config.maxConcurrentCalls)) {
       throw new Error("The Singtel trunk is at its " + config.maxConcurrentCalls + "-call limit.");
     }
+    const authorization = this.authorizeDial(input.destination);
     this.pendingStarts += 1;
     let reserved = true;
     let session: CallSession | undefined;
@@ -161,6 +166,7 @@ export class CallOrchestrator {
         id: randomUUID(),
         providerCallId: randomUUID(),
         destination: input.destination,
+        dialAuthorization: authorization,
         callerId: input.callerId,
         flowId: flow.id,
         flowVersion: flow.version,
@@ -179,8 +185,26 @@ export class CallOrchestrator {
       this.after(session.id, this.deadlines.originateTimeoutMs, async (current) => {
         if (["queued", "dialing", "ringing"].includes(current.status)) await this.finish(current, "failed", "NO_ANSWER");
       });
+      if (this.stopping || this.reconciling || !activeStatuses.has(this.store.getCall(session.id)?.status ?? "failed") || this.terminations.has(session.id)) throw new Error("Call service stopped before originate.");
+      this.authorizeDial(input.destination);
       // Persist the UUID before sending originate: answer/job events may precede its reply.
-      const provider = await this.adapter.originate(input, session.providerCallId);
+      const callId = session.id;
+      const guard = {
+        prepare: async () => {
+          await this.store.flush();
+          this.assertDialState(callId);
+          const current = this.store.getCall(callId)!;
+          current.dialAuthorization = this.authorizeDial(input.destination);
+          await this.persist(current);
+        },
+        check: () => {
+          this.assertDialState(callId);
+          const allowed = this.authorizeDial(input.destination);
+          const recorded = this.store.getCall(callId)!.dialAuthorization;
+          if (allowed.basis !== recorded?.basis || allowed.recordId !== recorded.recordId) throw new DialConsentError("Permission evidence changed while dial was queued; review before retrying.");
+        }
+      };
+      const provider = await this.adapter.originate(input, session.providerCallId, guard);
       const current = this.store.getCall(session.id) ?? session;
       if (current.providerCallId !== provider.providerCallId) {
         current.providerCallId = provider.providerCallId;
@@ -195,6 +219,19 @@ export class CallOrchestrator {
       throw error;
     } finally {
       if (reserved) this.pendingStarts -= 1;
+    }
+  }
+
+  private assertDialState(id: string): void {
+    this.store.assertHealthy();
+    if (this.stopping || this.reconciling || this.terminations.has(id) || !activeStatuses.has(this.store.getCall(id)?.status ?? "failed")) throw new Error("Call service stopped before originate.");
+  }
+
+  private authorizeDial(phone: string) {
+    try { return this.dialPolicy.authorize(phone); }
+    catch (error) {
+      logger.info({ skipReason: error instanceof Error ? error.message : "Permission check failed" }, "Dial refused by every-dial consent gate");
+      throw error;
     }
   }
 
@@ -262,6 +299,10 @@ export class CallOrchestrator {
     }
 
     try {
+      if (isVoiceOptOut(transcript)) {
+        const now = new Date().toISOString();
+        this.store.saveConsent({ id: randomUUID(), phone: session.destination, source: `Explicit voice opt-out in call ${session.id}`, consentedAt: this.store.getConsent(session.destination)?.consentedAt ?? now, recordedAt: now, purpose: "voice_marketing", revokedAt: now });
+      }
       this.record(session, "transcript_final", "Transcript final", transcript, listeningNode.id, receipt?.sttLatencyMs);
       session.lastListenWindowId = session.listenWindowId;
       this.clearListenTimer(session.id);

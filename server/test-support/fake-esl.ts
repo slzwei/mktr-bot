@@ -18,7 +18,7 @@ export class FakeEslServer {
   connections = 0;
   port = 0;
   response = "+OK";
-  respond?: (command: string) => string;
+  respond?: (command: string) => string | Promise<string>;
   private sequence = 0;
   private readonly server = net.createServer((socket) => {
     this.connections++;
@@ -41,7 +41,10 @@ export class FakeEslServer {
           const job = randomUUID();
           this.jobs.set(uuid, job);
           socket.write(`Content-Type: command/reply\nReply-Text: +OK Job-UUID: ${job}\nJob-UUID: ${job}\n\n`);
-        } else this.frame(socket, "api/response", this.respond?.(command) ?? this.response);
+        } else {
+          const reply = this.respond?.(command) ?? this.response;
+          void Promise.resolve(reply).then((body) => { if (!socket.destroyed) this.frame(socket, "api/response", body); }).catch((error) => { this.socketErrors.push(String(error)); socket.destroy(); });
+        }
       }
     });
   });

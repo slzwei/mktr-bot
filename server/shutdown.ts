@@ -1,11 +1,12 @@
 import type { Server } from "node:http";
 import type { Logger } from "pino";
 
-export function installShutdown(options: { server: Server; calls: { shutdown(): Promise<void> }; closeSseStreams(): void; beforeDrain?(): Promise<void>; closeStore?(): Promise<void>; logger: Logger; deadlineMs?: number }) {
+export function installShutdown(options: { server: Server; calls: { beginShutdown?(): void; shutdown(): Promise<void> }; closeSseStreams(): void; beforeDrain?(): Promise<void>; closeStore?(): Promise<void>; logger: Logger; deadlineMs?: number }) {
   let operation: Promise<void> | undefined;
   const shutdown = (signal: string) => {
     if (operation) return operation;
     operation = (async () => {
+      options.calls.beginShutdown?.();
       options.logger.info({ signal }, "Stopping API and terminating active provider channels");
       const deadline = setTimeout(() => {
         options.logger.fatal("Shutdown deadline exceeded; provider scheduled hangup remains the final bound");
@@ -15,20 +16,17 @@ export function installShutdown(options: { server: Server; calls: { shutdown(): 
       const closed = new Promise<void>((resolve) => options.server.close(() => resolve()));
       options.server.closeIdleConnections();
       options.closeSseStreams();
-      try {
-        await options.beforeDrain?.();
-        await options.calls.shutdown();
-        await options.closeStore?.();
-        options.server.closeAllConnections();
-        await closed;
-      } catch (error) {
-        options.logger.error({ err: error }, "Shutdown completed with unconfirmed cleanup");
-        process.exitCode = 1;
-        options.server.closeAllConnections();
-      } finally {
-        clearTimeout(deadline);
-        process.off("SIGTERM", term); process.off("SIGINT", interrupt);
+      const failures: unknown[] = [];
+      for (const cleanup of [options.beforeDrain, () => options.calls.shutdown(), options.closeStore]) {
+        try { await cleanup?.(); }
+        catch (error) { failures.push(error); options.logger.error({ err: error }, "Shutdown cleanup failed; attempting remaining resources"); }
       }
+      options.server.closeAllConnections();
+      await closed;
+      if (failures.length) process.exitCode = 1;
+      // Keep the hard deadline armed after an unconfirmed cleanup, in case a resource still holds the process open.
+      if (!failures.length) clearTimeout(deadline);
+      process.off("SIGTERM", term); process.off("SIGINT", interrupt);
     })();
     return operation;
   };

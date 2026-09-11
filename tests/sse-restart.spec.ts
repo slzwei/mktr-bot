@@ -42,6 +42,7 @@ test("API restart recovers the open call console and two operators share the act
       ]
     });
     await api(`/api/flows/${draft.id}/publish`, "POST", {});
+    await api("/api/compliance/consent", "POST", { phone: "+6591234567", source: "Isolated simulator restart fixture", consentedAt: new Date(Date.now() - 1000).toISOString(), purpose: "voice_marketing" });
     await left.reload();
     await left.getByRole("button", { name: "Test call", exact: true }).click();
     await left.getByRole("combobox", { name: "Published flow", exact: true }).selectOption(draft.id);

@@ -1,3 +1,5 @@
+import { complianceRoutes } from "./compliance-routes.js";
+import { DialConsentError } from "./compliance.js";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
@@ -120,6 +122,7 @@ export function createApp(dependencies: AppDependencies) {
   app.get("/api/bootstrap", async (_request, response) => {
     response.json({ flows: await store.listFlows(), clips: await store.listClips(), calls: await store.listCalls(), trunk: getTrunkStatus(calls.activeCallCount(), adapter) });
   });
+  app.use("/api/compliance", complianceRoutes(store));
   app.get("/api/contacts", (_request, response) => response.json(store.listContacts()));
   app.post("/api/contacts/import", async (request, response) => {
     const body = z.object({ csv: z.string().min(1).max(1_000_000) }).strict().parse(request.body);
@@ -247,6 +250,10 @@ export function createApp(dependencies: AppDependencies) {
     if (response.headersSent) { response.end(); return; }
     if (error instanceof z.ZodError) return response.status(400).json({ error: error.issues[0]?.message ?? "Invalid request." });
     if (error instanceof multer.MulterError) return response.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({ error: error.code === "LIMIT_FILE_SIZE" ? "Audio clips must be 10 MB or smaller." : "Invalid multipart audio upload." });
+    if (error instanceof DialConsentError) {
+      logger.info({ requestId: response.locals.requestId, skipReason: error.skipReason }, "Dial skipped by consent gate");
+      return response.status(409).json({ error: error.message, code: error.code, skipReason: error.skipReason });
+    }
     if (error instanceof HttpError) {
       if (error.cause || error.status >= 500) logger.error({ err: error, requestId: response.locals.requestId }, "Request could not be completed");
       return response.status(error.status).json({ error: error.message });

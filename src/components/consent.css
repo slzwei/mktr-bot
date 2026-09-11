@@ -1,0 +1,10 @@
+.consent-panel { margin: 0 0 24px; }
+.consent-panel h2 { display: flex; align-items: center; gap: 8px; }
+.consent-phone-row { display: flex; align-items: end; gap: 12px; margin-top: 18px; margin-bottom: 14px; }
+.consent-phone-row label { flex: 1; margin-bottom: 0; }
+.consent-phone-row button { min-height: 39px; }
+.consent-panel .consent-help { margin-top: 0; }
+.consent-result { background: #edf8f2; border: 1px solid #cde6d8; border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 13px; overflow-wrap: anywhere; }
+.consent-result--blocked { background: #fff6ef; border-color: #efd9c6; }
+.consent-result p:last-child { margin-bottom: 0; }
+@media (max-width: 650px) { .consent-phone-row { align-items: stretch; flex-direction: column; } }

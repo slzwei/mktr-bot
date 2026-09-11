@@ -1,3 +1,4 @@
+import type { ConsentRecord, DncClearance } from "./compliance.js";
 import { Prisma, PrismaClient } from "@prisma/client";
 import type { CallSession, Campaign, CampaignContact, Clip, Contact, FlowDefinition } from "../src/lib/domain.js";
 import type { AuthSession, AuthStore, AuthUser } from "./auth.js";
@@ -21,14 +22,16 @@ export class PrismaStore extends InMemoryStore implements AuthStore {
     const client = new PrismaClient({ datasourceUrl: databaseUrl, log: [] });
     try {
       await client.$connect();
-      const [flows, versions, clips, calls, contacts, campaigns, campaignContacts] = await client.$transaction([
+      const [flows, versions, clips, calls, contacts, campaigns, campaignContacts, consents, dncClearances] = await client.$transaction([
         client.flow.findMany(), client.flowVersion.findMany(), client.clip.findMany(), client.call.findMany(),
-        client.contact.findMany(), client.campaign.findMany(), client.campaignContact.findMany()
+        client.contact.findMany(), client.campaign.findMany(), client.campaignContact.findMany(), client.consentRecord.findMany({ orderBy: { sequence: "asc" } }), client.dncClearance.findMany({ orderBy: { sequence: "asc" } })
       ]);
       let store = new PrismaStore(client, {
         flows: flows.filter((flow) => !flow.deletedAt).map((flow) => ({ id: flow.id, name: flow.name, version: flow.version, status: flow.status, startNodeId: flow.startNodeId, nodes: asSnapshot(flow.nodes), edges: asSnapshot(flow.edges), updatedAt: flow.updatedAt.toISOString() })),
         versions: versions.map((version) => asSnapshot<FlowDefinition>(version.graph)),
         clips: clips.map((clip) => asSnapshot<Clip>(clip.snapshot)),
+        consents: consents.map((row) => asSnapshot<ConsentRecord>(row.snapshot)),
+        dncClearances: dncClearances.map((row) => asSnapshot<DncClearance>(row.snapshot)),
         calls: calls.map((call) => asSnapshot<CallSession>(call.snapshot)),
         contacts: contacts.map((contact) => asSnapshot<Contact>(contact.snapshot)),
         campaigns: campaigns.map((campaign) => asSnapshot<Campaign>(campaign.snapshot)),
@@ -48,7 +51,7 @@ export class PrismaStore extends InMemoryStore implements AuthStore {
             await transaction.flowVersion.create({ data: { flowId: flow.id, version: flow.version, graph: json(flow), publishedAt: new Date(flow.updatedAt) } });
           }
         });
-        store = new PrismaStore(client, { flows: seed.listFlows(), versions: seed.listFlowVersions(), clips: seed.listClips(), calls: [] });
+        store = new PrismaStore(client, { flows: seed.listFlows(), versions: seed.listFlowVersions(), clips: seed.listClips(), calls: [], consents: consents.map((row) => asSnapshot<ConsentRecord>(row.snapshot)), dncClearances: dncClearances.map((row) => asSnapshot<DncClearance>(row.snapshot)) });
       }
       await client.session.deleteMany({ where: { expiresAt: { lte: new Date() } } });
       return store;
@@ -84,6 +87,14 @@ export class PrismaStore extends InMemoryStore implements AuthStore {
         logger.error({ err: this.failure }, "Durable store write failed; further writes and call origination are blocked until restart");
       }
     });
+  }
+  protected override writeConsent(record: ConsentRecord): void {
+    const data = { id: record.id, phone: record.phone, snapshot: json(record) };
+    this.enqueue(() => this.client.consentRecord.create({ data }));
+  }
+  protected override writeDncClearance(record: DncClearance): void {
+    const data = { id: record.id, phone: record.phone, snapshot: json(record) };
+    this.enqueue(() => this.client.dncClearance.create({ data }));
   }
   protected override writeFlow(flow: FlowDefinition): void {
     const snapshot = structuredClone(flow);

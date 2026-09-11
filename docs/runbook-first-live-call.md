@@ -12,6 +12,8 @@ Record these values in Shawn's private deployment record before proceeding:
 
 Shawn owns every host installation, production setup, credential entry, Singtel contact, purchase/account decision, gateway enablement, and real call in this document. The agent may run only the credential-free verifier and simulator/fake-provider tests. Commands below are operator instructions unless expressly described as dry verification.
 
+Before the first dial, record the approved destination's actual voice-marketing consent source and timestamp in Campaigns → Voice call permission, or record an affirmative Singapore No Voice Call Registry result checked within the last 21 days. An imported contact and a test-call designation alone do not satisfy the every-dial consent gate. Confirm the permission check shows allowed, and retain the supporting evidence; see `docs/compliance.md`. No test fixture grants permission to a real recipient.
+
 ## 1. Close the prerequisites
 
 A1 through A7 must be complete before dialing, including the runtime checks that need the operator host. Review their `Status` and `Evidence` in `PRODUCTION_CHECKLIST.md`; a passing fake-provider test cannot close a real registration or Docker check. The preparation and registration steps below let Shawn resolve those outstanding infrastructure checks while the API remains in simulator mode. Do not advance to the call while any required check fails.

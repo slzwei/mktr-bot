@@ -46,6 +46,8 @@ export class EslCommandError extends Error {
   constructor(readonly reply: string) { super(`FreeSWITCH rejected command: ${reply.trim()}`); }
 }
 
+export type CommandGuard = { prepare(): Promise<void>; check(): void };
+
 export type EslOptions = {
   host: string;
   port: number;
@@ -163,10 +165,13 @@ export class EslClient {
     try { await connection; } finally { if (this.connecting === connection) this.connecting = undefined; }
   }
 
-  command(command: string): Promise<EslFrame> {
+  command(command: string, guard?: CommandGuard): Promise<EslFrame> {
     if (/[\r\n]/.test(command)) return Promise.reject(new Error("ESL command contains a line break."));
     const next = this.commandQueue.then(async () => {
       await this.connect();
+      await guard?.prepare();
+      if (!this.ready || !this.socket || this.closed) throw new Error("ESL disconnected before command write.");
+      guard?.check();
       return new Promise<EslFrame>((resolve, reject) => {
         const timer = setTimeout(() => {
           this.socket?.destroy(new Error("ESL command timed out; outcome is unknown."));

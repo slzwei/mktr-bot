@@ -7,7 +7,7 @@ import request from "supertest";
 import { createApp } from "./app.js";
 import { hashPassword, InMemoryAuthStore, seedAdmin, SESSION_COOKIE, type AuthUser } from "./auth.js";
 import { RuleClassifier } from "./classifier.js";
-import { CallOrchestrator } from "./orchestrator.js";
+import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
 import { InMemoryStore } from "./store.js";
 import { SimulatedTelephonyAdapter } from "./telephony.js";
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { EslClient, EslCommandError, type EslEvent } from "./esl.js";
+import { EslClient, EslCommandError, type EslEvent, type CommandGuard } from "./esl.js";
 import type { CallerId, Clip, TelephonyMode, TestCallInput, TrunkStatus } from "../src/lib/domain.js";
 import { CALLER_IDS, RESERVED_CALLER_ID } from "../src/lib/domain.js";
 import { config, isProductionGatewayConfigured } from "./config.js";
@@ -17,7 +17,7 @@ export type TelephonyEvent = {
 export interface TelephonyAdapter {
   readonly mode: TelephonyMode;
   readonly configured: boolean;
-  originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId?: string): Promise<TelephonyCall>;
+  originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId?: string, guard?: CommandGuard): Promise<TelephonyCall>;
   playClip(providerCallId: string, clip: Clip, playbackId?: string): Promise<void>;
   hangup(providerCallId: string): Promise<void>;
   startListening?(providerCallId: string, callId: string, windowId: string): Promise<void>;
@@ -32,7 +32,8 @@ export interface TelephonyAdapter {
 export class SimulatedTelephonyAdapter implements TelephonyAdapter {
   readonly mode = "simulated" as const;
   readonly configured = true;
-  async originate(_input?: Pick<TestCallInput, "destination" | "callerId">, providerCallId = randomUUID()): Promise<TelephonyCall> {
+  async originate(_input?: Pick<TestCallInput, "destination" | "callerId">, providerCallId = randomUUID(), guard?: CommandGuard): Promise<TelephonyCall> {
+    await guard?.prepare(); guard?.check();
     return { providerCallId };
   }
   async hangup(): Promise<void> { return; }
@@ -86,7 +87,7 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
     return channels;
   }
 
-  async originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId = randomUUID()): Promise<TelephonyCall> {
+  async originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId = randomUUID(), guard?: CommandGuard): Promise<TelephonyCall> {
     if (!this.configured) throw new Error("FreeSWITCH mode requires complete gateway credentials and configuration.");
     assertAllowedCallerId(input.callerId);
     if (!/^\+[1-9]\d{7,14}$/.test(input.destination)) throw new Error("Destination must use E.164 format.");
@@ -99,7 +100,7 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
       `originate_timeout=${config.originateTimeoutSeconds}`,
       `execute_on_answer='sched_hangup +${config.maxCallSeconds} ALLOTTED_TIMEOUT'`
     ].join(",");
-    const frame = await this.client.command(`bgapi originate {${variables}}sofia/gateway/singtel/${input.destination} &park()`);
+    const frame = await this.client.command(`bgapi originate {${variables}}sofia/gateway/singtel/${input.destination} &park()`, guard);
     const jobId = frame.headers["job-uuid"] ?? frame.headers["reply-text"]?.match(/Job-UUID:\s*(\S+)/)?.[1];
     if (!jobId) throw new Error("FreeSWITCH accepted originate without a Job-UUID; channel outcome is unknown.");
     this.jobs.set(jobId, providerCallId);

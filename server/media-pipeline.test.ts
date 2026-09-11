@@ -11,7 +11,7 @@ import { InMemoryAuthStore, seedAdmin } from "./auth.js";
 import { RuleClassifier } from "./classifier.js";
 import { reconcileClipStorage } from "./clip-reconciliation.js";
 import { config } from "./config.js";
-import { CallOrchestrator } from "./orchestrator.js";
+import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
 import { InMemoryStore } from "./store.js";
 import { SimulatedTelephonyAdapter } from "./telephony.js";
 

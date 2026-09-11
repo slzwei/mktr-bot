@@ -17,6 +17,33 @@ export class ApiError extends Error {
 
 export type Operator = { id: string; email: string; role: "admin" | "operator" };
 
+export type VoiceConsent = {
+  id: string;
+  phone: string;
+  source: string;
+  consentedAt: string;
+  recordedAt: string;
+  purpose: "voice_marketing";
+  revokedAt?: string;
+};
+export type DncResult = {
+  id: string;
+  phone: string;
+  checkedAt: string;
+  recordedAt: string;
+  cleared: boolean;
+  source: "Singapore DNC Registry";
+  reference: string;
+};
+export type VoicePermission = {
+  phone: string;
+  allowed: boolean;
+  basis?: "consent" | "dnc";
+  skipReason?: string;
+  consent?: VoiceConsent;
+  dnc?: DncResult;
+};
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
@@ -44,6 +71,10 @@ export const api = {
   campaign: (id: string) => request<CampaignDetail>(`/api/campaigns/${id}`),
   createCampaign: (input: CampaignInput) => request<CampaignDetail>("/api/campaigns", { method: "POST", body: JSON.stringify(input) }),
   controlCampaign: (id: string, action: "start" | "pause" | "stop") => request<CampaignDetail>(`/api/campaigns/${id}/${action}`, { method: "POST", body: "{}" }),
+  voicePermission: (phone: string) => request<VoicePermission>(`/api/compliance/${encodeURIComponent(phone)}`),
+  recordVoiceConsent: (input: { phone: string; source: string; consentedAt: string; purpose: "voice_marketing" }) => request<VoiceConsent>("/api/compliance/consent", { method: "POST", body: JSON.stringify(input) }),
+  recordDncResult: (input: { phone: string; checkedAt: string; cleared: boolean; source: "Singapore DNC Registry"; reference: string }) => request<DncResult>("/api/compliance/dnc", { method: "POST", body: JSON.stringify(input) }),
+  recordVoiceOptOut: (input: { phone: string; source: string }) => request<VoiceConsent>("/api/compliance/opt-out", { method: "POST", body: JSON.stringify(input) }),
   createFlow: (name: string) => request<FlowDefinition>("/api/flows", { method: "POST", body: JSON.stringify({ name }) }),
   saveFlow: (flow: FlowDefinition) => request<FlowDefinition>(`/api/flows/${flow.id}`, { method: "PUT", body: JSON.stringify(flow) }),
   publishFlow: (flowId: string) => request<{ flow: FlowDefinition; validation: { valid: boolean; errors: string[] } }>(`/api/flows/${flowId}/publish`, { method: "POST" }),

@@ -1,3 +1,5 @@
+import { HttpError } from "./http-error.js";
+import type { ConsentRecord, DncClearance, DialPermissionStore } from "./compliance.js";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { isCallerId, type CallSession, type Campaign, type CampaignContact, type Clip, type Contact, type FlowDefinition, type FlowNode } from "../src/lib/domain.js";
@@ -193,6 +195,8 @@ export type StoreSnapshot = {
   versions: FlowDefinition[];
   clips: Clip[];
   calls: CallSession[];
+  consents?: ConsentRecord[];
+  dncClearances?: DncClearance[];
   contacts?: Contact[];
   campaigns?: Campaign[];
   campaignContacts?: CampaignContact[];
@@ -200,7 +204,9 @@ export type StoreSnapshot = {
 
 /** Mutations update the process cache immediately. Await flush before acknowledging
  * writes or creating provider side effects. A failed durable write closes this gate. */
-export interface Store {
+export interface Store extends DialPermissionStore {
+  saveConsent(record: ConsentRecord): ConsentRecord;
+  saveDncClearance(record: DncClearance): DncClearance;
   listFlows(): FlowDefinition[];
   getFlow(id: string): FlowDefinition | undefined;
   getFlowVersion(id: string, version: number): FlowDefinition | undefined;
@@ -226,6 +232,7 @@ export interface Store {
   saveCampaign(campaign: Campaign, contacts?: CampaignContact[]): Campaign;
   listCampaignContacts(campaignId: string): CampaignContact[];
   saveCampaignContact(contact: CampaignContact): CampaignContact;
+  assertHealthy(): void;
   flush(): Promise<void>;
   close(): Promise<void>;
 }
@@ -234,6 +241,10 @@ export class InMemoryStore implements Store {
   protected readonly flows = new Map<string, FlowDefinition>();
   protected readonly versions = new Map<string, FlowDefinition>();
   protected readonly clips = new Map<string, Clip>();
+  protected readonly consents = new Map<string, ConsentRecord>();
+  protected readonly dncClearances = new Map<string, DncClearance>();
+  protected readonly lastOptOut = new Map<string, ConsentRecord>();
+  protected readonly complianceIds = new Set<string>();
   protected readonly calls = new Map<string, CallSession>();
   protected readonly contacts = new Map<string, Contact>();
   protected readonly campaigns = new Map<string, Campaign>();
@@ -248,8 +259,36 @@ export class InMemoryStore implements Store {
     initial.contacts?.forEach((contact) => this.contacts.set(contact.id, clone(contact)));
     initial.campaigns?.forEach((campaign) => this.campaigns.set(campaign.id, clone(campaign)));
     initial.campaignContacts?.forEach((contact) => this.campaignContacts.set(contact.id, clone(contact)));
+    initial.consents?.forEach((record) => {
+      if (record.revokedAt && Date.parse(record.revokedAt) >= Date.parse(this.lastOptOut.get(record.phone)?.revokedAt ?? "1970-01-01")) this.lastOptOut.set(record.phone, clone(record));
+      const optOut = this.lastOptOut.get(record.phone);
+      this.consents.set(record.phone, clone(!record.revokedAt && optOut?.revokedAt && Date.parse(record.consentedAt) <= Date.parse(optOut.revokedAt) ? optOut : record));
+      this.complianceIds.add(record.id);
+    });
+    initial.dncClearances?.forEach((record) => { this.dncClearances.set(record.phone, clone(record)); this.complianceIds.add(record.id); });
     this.refreshClipUsage();
   }
+
+  getConsent(phone: string): ConsentRecord | undefined { const record = this.consents.get(phone); return record ? clone(record) : undefined; }
+  getDncClearance(phone: string): DncClearance | undefined { const record = this.dncClearances.get(phone); return record ? clone(record) : undefined; }
+  saveConsent(record: ConsentRecord): ConsentRecord {
+    this.assertWritable();
+    const prior = this.lastOptOut.get(record.phone);
+    if (!record.revokedAt && prior?.revokedAt && Date.parse(record.consentedAt) <= Date.parse(prior.revokedAt)) throw new HttpError(409, "New consent must have been given after the recorded opt-out.");
+    if (this.complianceIds.has(record.id)) throw new Error("Consent evidence is append-only; record a new decision.");
+    if (record.revokedAt && Date.parse(record.revokedAt) >= Date.parse(prior?.revokedAt ?? "1970-01-01")) this.lastOptOut.set(record.phone, clone(record));
+    this.complianceIds.add(record.id); this.consents.set(record.phone, clone(record)); this.writeConsent(clone(record)); return clone(record);
+  }
+  saveDncClearance(record: DncClearance): DncClearance {
+    this.assertWritable();
+    const prior = this.dncClearances.get(record.phone);
+    if (prior && Date.parse(record.checkedAt) < Date.parse(prior.checkedAt)) throw new HttpError(409, "DNC result predates the latest recorded Registry check.");
+    if (prior && !prior.cleared && record.cleared && Date.parse(record.checkedAt) === Date.parse(prior.checkedAt)) throw new HttpError(409, "A newer Registry check is required to replace a negative result.");
+    if (this.complianceIds.has(record.id)) throw new Error("DNC evidence is append-only; record a new result.");
+    this.complianceIds.add(record.id); this.dncClearances.set(record.phone, clone(record)); this.writeDncClearance(clone(record)); return clone(record);
+  }
+  protected writeConsent(_record: ConsentRecord): void { return; }
+  protected writeDncClearance(_record: DncClearance): void { return; }
 
   listFlows(): FlowDefinition[] { return [...this.flows.values()].map(clone); }
   getFlow(id: string): FlowDefinition | undefined { const flow = this.flows.get(id); return flow ? clone(flow) : undefined; }
@@ -373,6 +412,7 @@ export class InMemoryStore implements Store {
     this.writeCampaignContact(clone(contact));
     return clone(contact);
   }
+  assertHealthy(): void { this.assertWritable(); }
   async flush(): Promise<void> { return; }
   async close(): Promise<void> { return; }
   protected assertWritable(): void { return; }

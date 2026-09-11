@@ -1,7 +1,7 @@
 import http from "node:http";
 import { EslClient } from "../esl.js";
 import { FreeSwitchEslAdapter } from "../telephony.js";
-import { CallOrchestrator } from "../orchestrator.js";
+import { FixtureCallOrchestrator as CallOrchestrator } from "./fixture-orchestrator.js";
 import { InMemoryStore } from "../store.js";
 import { installShutdown } from "../shutdown.js";
 import { logger } from "../logger.js";

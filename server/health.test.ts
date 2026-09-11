@@ -13,7 +13,7 @@ import { RuleClassifier } from "./classifier.js";
 import { EslClient } from "./esl.js";
 import { FreeSwitchHealthProbe } from "./health.js";
 import { VoiceMetrics } from "./metrics.js";
-import { CallOrchestrator } from "./orchestrator.js";
+import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
 import { InMemoryStore } from "./store.js";
 import { FreeSwitchEslAdapter, SimulatedTelephonyAdapter, type TelephonyAdapter } from "./telephony.js";
 

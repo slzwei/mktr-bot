@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { EslClient } from "./esl.js";
 import { FreeSwitchEslAdapter } from "./telephony.js";
-import { CallOrchestrator } from "./orchestrator.js";
+import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
 import { InMemoryStore } from "./store.js";
 import { FakeEslServer, fixtureEslPassword, waitFor } from "./test-support/fake-esl.js";
 

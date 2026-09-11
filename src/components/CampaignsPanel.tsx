@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LoaderCircle, Pause, Play, Plus, Square, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { CALLER_IDS, type CallingHours, type CampaignDetail, type Contact, type FlowDefinition } from "../lib/domain";
+import { ConsentPanel } from "./ConsentPanel";
 import "./campaigns.css";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -77,6 +78,7 @@ export function CampaignsPanel({ flows }: { flows: FlowDefinition[] }) {
         <button className="primary-button" disabled={busy || !name.trim() || !flowId || !contactIds.length} onClick={create}><Plus size={15} /> Create campaign</button>
       </section>
     </div>
+    <ConsentPanel />
     <section className="campaign-card campaign-progress">
       <div className="campaign-progress-header"><div><h2>Live progress</h2><label>Campaign<select value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Select a campaign</option>{campaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label></div>{active && <div className="campaign-controls"><button className="primary-button" disabled={busy || !["draft", "paused"].includes(active.status)} onClick={() => control("start")}><Play size={15} /> Start campaign</button><button className="secondary-button" disabled={busy || active.status !== "running"} onClick={() => control("pause")}><Pause size={15} /> Pause campaign</button><button className="secondary-button" disabled={busy || ["stopped", "completed"].includes(active.status)} onClick={() => control("stop")}><Square size={15} /> Stop campaign</button></div>}</div>
       {!active ? <p>No campaign selected.</p> : <>

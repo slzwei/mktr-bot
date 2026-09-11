@@ -10,7 +10,7 @@ import test from "node:test";
 import { PrismaClient } from "@prisma/client";
 import type { FlowDefinition } from "../../src/lib/domain.js";
 import { reconcileClipStorage } from "../clip-reconciliation.js";
-import { CallOrchestrator } from "../orchestrator.js";
+import { FixtureCallOrchestrator as CallOrchestrator } from "./fixture-orchestrator.js";
 import { PrismaStore } from "../prisma-store.js";
 import type { TelephonyAdapter } from "../telephony.js";
 import { CampaignDialer, createCampaign } from "../campaigns.js";
@@ -161,6 +161,7 @@ test("API startup migrates and authenticated flow, clip, call and session surviv
     const draft = await api("/api/flows", "POST", { name: "API survives restart" }) as FlowDefinition;
     const edited = await api(`/api/flows/${draft.id}`, "PUT", { ...flow(), id: draft.id, name: "An edited durable graph" }) as FlowDefinition;
     const publication = await api(`/api/flows/${draft.id}/publish`, "POST", {});
+    await api("/api/compliance/consent", "POST", { phone: "+6591234567", source: "Isolated simulator restart fixture", consentedAt: new Date(Date.now() - 1000).toISOString(), purpose: "voice_marketing" });
     const call = await api("/api/calls", "POST", { destination: "+6591234567", callerId: "+6562773211", flowId: draft.id });
     await api(`/api/calls/${call.id}/end`, "POST", {});
     const clip = await api("/api/clips", "POST", { name: "Durable clip metadata", durationSeconds: 2 });
@@ -238,5 +239,25 @@ test("campaign contacts, pins, attempt state and linked call survive Postgres re
     const row = await sql.call.findUniqueOrThrow({ where: { id: call.id }, include: { campaign: true, contact: true } });
     assert.equal(row.campaign?.flowVersion, original.version); assert.equal(row.contact?.phone, imported.contacts[0].phone);
     assert.equal(restored.getCampaign(campaign.id)?.status, "paused");
+  } finally { await restored.close(); await sql.$disconnect(); }
+});
+
+test("append-only consent and DNC evidence survive Postgres restart and a withdrawal remains authoritative", async () => {
+  const { ConsentPolicy } = await import("../compliance.js");
+  const store = await PrismaStore.connect(databaseUrl), sql = new PrismaClient({ datasourceUrl: databaseUrl });
+  const phone = "+6587345601", now = new Date().toISOString();
+  const consent = store.saveConsent({ id: randomUUID(), phone, source: "Isolated database fixture", consentedAt: now, recordedAt: now, purpose: "voice_marketing" });
+  store.saveDncClearance({ id: randomUUID(), phone, checkedAt: now, recordedAt: now, cleared: true, source: "Singapore DNC Registry", reference: "Fake fixture only" });
+  await store.flush();
+  assert.equal(new ConsentPolicy(store).authorize(phone).basis, "consent");
+  const withdrawal = store.saveConsent({ ...consent, id: randomUUID(), revokedAt: now }); await store.flush();
+  await assert.rejects(sql.consentRecord.update({ where: { id: consent.id }, data: { phone: "+6587345602" } }), /append-only/);
+  await store.close();
+  const restored = await PrismaStore.connect(databaseUrl);
+  try {
+    assert.deepEqual(restored.getConsent(phone), withdrawal);
+    assert.equal(restored.getDncClearance(phone)?.cleared, true);
+    assert.throws(() => new ConsentPolicy(restored).authorize(phone), /opted out/);
+    assert.equal(await sql.consentRecord.count({ where: { phone } }), 2);
   } finally { await restored.close(); await sql.$disconnect(); }
 });

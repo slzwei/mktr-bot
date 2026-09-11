@@ -128,8 +128,8 @@ Done when: `Contact`, `Campaign`, and `CampaignContact` models exist. CSV import
 Verify: Dialer unit tests cover pacing and hours. An e2e campaign of three simulated contacts completes with outcomes recorded.
 
 ### C2. PDPA Do Not Call check and consent record
-Status: todo
-Evidence: 2026-09-11 simulator HTTP probe starts a call with 201 despite no consent record or fresh DNC clearance; `server/orchestrator.ts:79` originates after caller-ID/format/capacity/published-flow checks only. Consent/DNC storage, expiry/gating, skip reasons/logging, compliance note, and the rejection unit test are absent. The simulator cannot demonstrate the required skip; implementing fake-clearance verification does not require the operator to register a DNC account first.
+Status: done
+Evidence: Build, 79 unit tests, 7 native PostgreSQL assertions, 18 Chromium tests and the real simulator API restart test pass. Consent tests prove zero originates for absent/expired/negative/future evidence, voice withdrawal overrides clearance, old evidence cannot erase refusals, and withdrawal/shutdown while ESL is busy cancels queued originates at the socket. Browser tests show the no-consent skip and explicit consent/opt-out entry; append-only records survive restart. DNC clearance expires after 21 days per current PDPC rules; real evidence/account actions remain operator-only.
 Why: Marketing voice calls to Singapore numbers need a Do Not Call Registry check unless there is clear consent per number.
 Done when: Every dial is gated by a consent-or-DNC check: a stored consent record with source and timestamp, or a DNC Registry result cached for at most 30 days. Numbers that fail are skipped and logged. The UI shows why a contact was skipped. A compliance note states the legal basis relied on.
 Verify: A unit test proves a contact without consent and without fresh DNC clearance cannot be dialled. The simulator shows the skip reason.

@@ -140,6 +140,7 @@ export type CallSession = {
   lastListenWindowId?: string;
   lastUtteranceId?: string;
   retryAttempts?: Record<string, number>;
+  dialAuthorization?: { basis: "consent" | "dnc"; recordId: string; checkedAt: string };
   events: CallEvent[];
 };
 
