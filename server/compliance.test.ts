@@ -62,8 +62,9 @@ test("recorded consent authorizes calls; voice opt-out overrides clearance and c
 
 test("consent is rechecked after durability before originate and a concurrent withdrawal blocks the provider effect", async () => {
   class DelayedStore extends InMemoryStore {
-    release?: () => void;
-    override async flush() { await new Promise<void>((resolve) => { this.release = resolve; }); }
+    release!: () => void;
+    private readonly barrier = new Promise<void>((resolve) => { this.release = resolve; });
+    override async flush() { await this.barrier; }
   }
   const store = new DelayedStore(), f = fixture(store); consent(store);
   const pending = f.calls.start(input);
@@ -71,10 +72,8 @@ test("consent is rechecked after durability before originate and a concurrent wi
   const prior = store.getConsent(phone)!;
   store.saveConsent({ ...prior, id: randomUUID(), revokedAt: now.toISOString() });
   store.release!();
-  // Failed queued snapshot also uses the explicit durability barrier.
-  await new Promise((resolve) => setImmediate(resolve)); store.release!();
   await rejected; assert.equal(f.originates(), 0);
-  const shutdown = f.calls.shutdown(); await new Promise((resolve) => setImmediate(resolve)); store.release!(); await shutdown;
+  await f.calls.shutdown();
 });
 
 test("HTTP evidence is authenticated and a campaign records a visible consent skip reason", async (t) => {

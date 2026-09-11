@@ -135,8 +135,8 @@ Done when: Every dial is gated by a consent-or-DNC check: a stored consent recor
 Verify: A unit test proves a contact without consent and without fresh DNC clearance cannot be dialled. The simulator shows the skip reason.
 
 ### C3. Outcomes, recording, and export
-Status: todo
-Evidence: 2026-09-11 source audit: `server/orchestrator.ts:130` advances directly on answer, and lines 437/447 store generic ended/failed reasons without AMD or hangup-cause mapping. Recording/retention/purge, signed outcome delivery, and campaign CSV export are absent; history only shows generic status/reason. No cause-mapping unit test or one-row-per-call export e2e exists in the passing suites.
+Status: done
+Evidence: Build, 92 unit tests, 19 Chromium tests and 8 native PostgreSQL assertions pass. Fake-ESL tests verify answer-time AMD/recording, voicemail and hangup-cause outcomes, delayed/unconfirmed hangups and no-speech race protection; temporary-file purge removes expired/orphan audio and keeps active audio. CSV browser download contains exactly one row per call; signed outbox retries preserve ID/body and persist attempts across restart with an eight-attempt cap. Docker-dependent volume/build/config Verify blocked: Docker not installed on host. Verified against fake ESL and fake STT; real AMD/recording/provider quality remains in the runbook.
 Why: No answering-machine detection, no busy or no-answer outcomes, no recording, and no export.
 Done when: Answering-machine detection on answer produces a `voicemail` outcome. Hangup causes map to `busy`, `no_answer`, or `failed`. Optional session recording has a retention period and a purge job. A signed outcome webhook and a CSV export exist per campaign. Outcomes appear in call history.
 Verify: Unit tests cover cause mapping. An e2e export produces one CSV row per call.

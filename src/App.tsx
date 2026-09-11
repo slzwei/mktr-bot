@@ -232,16 +232,19 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
 
         {view === "clips" && <ClipLibrary clips={data.clips} onCreated={onClipCreated} />}
         {view === "trunk" && <TrunkPanel trunk={data.trunk} />}
-        {view === "campaigns" && <CampaignsPanel flows={data.flows} />}
+        {view === "campaigns" && <CampaignsPanel flows={data.flows} canManageWebhooks={operator.role === "admin"} />}
         {view === "calls" && (
           <div className="history-view">
             <section className="library-header"><div><span className="eyebrow"><FileClock size={14} /> Call history</span><h1>Test call sessions</h1><p>Review call outcomes, selected branches, and measured decision latency.</p></div><button className="primary-button" onClick={() => setCallOpen(true)}><PhoneCall size={16} /> New test call</button></section>
             <section className="history-table">
               <header><span>Destination</span><span>Caller ID</span><span>Flow</span><span>Outcome</span><span>Started</span></header>
               {calls.length === 0 ? <div className="empty-history"><Cloud size={24} /><strong>No calls yet</strong><span>Run a simulated test call from any published flow.</span></div> : calls.map((call) => (
-                <button className="history-row" key={call.id} onClick={() => { setActiveCall(call); setCallOpen(true); }}>
-                  <span><PhoneCall size={14} /> {call.destination}</span><span>{call.callerId}</span><span>v{call.flowVersion}</span><span className={`call-outcome call-outcome--${call.status}`}>{call.endReason ?? call.status}</span><time>{new Date(call.createdAt).toLocaleString()}</time>
-                </button>
+                <div key={call.id}>
+                  <button className="history-row" onClick={() => { setActiveCall(call); setCallOpen(true); }}>
+                    <span><PhoneCall size={14} /> {call.destination}</span><span>{call.callerId}</span><span>v{call.flowVersion}</span><span className={`call-outcome call-outcome--${call.status}`} title={call.endReason}>{call.outcome ?? call.endReason ?? call.status}</span><time>{new Date(call.createdAt).toLocaleString()}</time>
+                  </button>
+                  {call.recordingFile && call.recordingExpiresAt && Date.parse(call.recordingExpiresAt) > Date.now() && <a className="history-recording" href={`/api/calls/${call.id}/recording`} download>Download recording</a>}
+                </div>
               ))}
             </section>
           </div>

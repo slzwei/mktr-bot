@@ -1,6 +1,6 @@
 import type { ConsentRecord, DncClearance } from "./compliance.js";
 import { Prisma, PrismaClient } from "@prisma/client";
-import type { CallSession, Campaign, CampaignContact, Clip, Contact, FlowDefinition } from "../src/lib/domain.js";
+import type { CallSession, Campaign, CampaignContact, Clip, Contact, FlowDefinition, OutcomeDelivery } from "../src/lib/domain.js";
 import type { AuthSession, AuthStore, AuthUser } from "./auth.js";
 import { logger } from "./logger.js";
 import { InMemoryStore, type ClipAsset, type StoreSnapshot } from "./store.js";
@@ -22,9 +22,9 @@ export class PrismaStore extends InMemoryStore implements AuthStore {
     const client = new PrismaClient({ datasourceUrl: databaseUrl, log: [] });
     try {
       await client.$connect();
-      const [flows, versions, clips, calls, contacts, campaigns, campaignContacts, consents, dncClearances] = await client.$transaction([
+      const [flows, versions, clips, calls, contacts, campaigns, campaignContacts, consents, dncClearances, outcomeDeliveries] = await client.$transaction([
         client.flow.findMany(), client.flowVersion.findMany(), client.clip.findMany(), client.call.findMany(),
-        client.contact.findMany(), client.campaign.findMany(), client.campaignContact.findMany(), client.consentRecord.findMany({ orderBy: { sequence: "asc" } }), client.dncClearance.findMany({ orderBy: { sequence: "asc" } })
+        client.contact.findMany(), client.campaign.findMany(), client.campaignContact.findMany(), client.consentRecord.findMany({ orderBy: { sequence: "asc" } }), client.dncClearance.findMany({ orderBy: { sequence: "asc" } }), client.outcomeDelivery.findMany()
       ]);
       let store = new PrismaStore(client, {
         flows: flows.filter((flow) => !flow.deletedAt).map((flow) => ({ id: flow.id, name: flow.name, version: flow.version, status: flow.status, startNodeId: flow.startNodeId, nodes: asSnapshot(flow.nodes), edges: asSnapshot(flow.edges), updatedAt: flow.updatedAt.toISOString() })),
@@ -35,7 +35,8 @@ export class PrismaStore extends InMemoryStore implements AuthStore {
         calls: calls.map((call) => asSnapshot<CallSession>(call.snapshot)),
         contacts: contacts.map((contact) => asSnapshot<Contact>(contact.snapshot)),
         campaigns: campaigns.map((campaign) => asSnapshot<Campaign>(campaign.snapshot)),
-        campaignContacts: campaignContacts.map((contact) => asSnapshot<CampaignContact>(contact.snapshot))
+        campaignContacts: campaignContacts.map((contact) => asSnapshot<CampaignContact>(contact.snapshot)),
+        outcomeDeliveries: outcomeDeliveries.map((entry) => ({ ...entry, createdAt: entry.createdAt.toISOString(), nextAttemptAt: entry.nextAttemptAt.toISOString(), deliveredAt: entry.deliveredAt?.toISOString(), lastError: entry.lastError ?? undefined }))
       });
       // Seed only a completely empty application database, never re-create deleted content.
       if (options.seedDemo !== false && flows.length === 0 && versions.length === 0 && clips.length === 0 && calls.length === 0 && contacts.length === 0 && campaigns.length === 0) {
@@ -149,6 +150,7 @@ export class PrismaStore extends InMemoryStore implements AuthStore {
         status: campaign.status, callingHours: json(campaign.callingHours), maxAttempts: campaign.maxAttempts,
         retryDelaySeconds: campaign.retryDelaySeconds, dialIntervalMs: campaign.dialIntervalMs,
         lastDialAt: campaign.lastDialAt ? new Date(campaign.lastDialAt) : null, snapshot: json(campaign),
+        outcomeWebhookUrl: campaign.outcomeWebhookUrl ?? null, outcomeWebhookEnabledAt: campaign.outcomeWebhookEnabledAt ? new Date(campaign.outcomeWebhookEnabledAt) : null,
         createdAt: new Date(campaign.createdAt), updatedAt: new Date(campaign.updatedAt)
       };
       await transaction.campaign.upsert({ where: { id: campaign.id }, create: { id: campaign.id, ...data }, update: data });
@@ -165,6 +167,15 @@ export class PrismaStore extends InMemoryStore implements AuthStore {
       lastAttemptAt: contact.lastAttemptAt ? new Date(contact.lastAttemptAt) : null, lastCallId: contact.lastCallId ?? null,
       outcome: contact.outcome ?? null, skipReason: contact.skipReason ?? null, snapshot: json(contact)
     };
+  }
+  protected override writeOutcomeDelivery(delivery: OutcomeDelivery): void {
+    const data = {
+      callId: delivery.callId, campaignId: delivery.campaignId, url: delivery.url, payload: delivery.payload,
+      attempts: delivery.attempts, status: delivery.status, nextAttemptAt: new Date(delivery.nextAttemptAt),
+      createdAt: new Date(delivery.createdAt), deliveredAt: delivery.deliveredAt ? new Date(delivery.deliveredAt) : null,
+      lastError: delivery.lastError ?? null
+    };
+    this.enqueue(() => this.client.outcomeDelivery.upsert({ where: { id: delivery.id }, create: { id: delivery.id, ...data }, update: data }));
   }
 
   async findUserByEmail(email: string): Promise<AuthUser | undefined> {

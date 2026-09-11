@@ -15,6 +15,7 @@ import { PrismaStore } from "../prisma-store.js";
 import type { TelephonyAdapter } from "../telephony.js";
 import { CampaignDialer, createCampaign } from "../campaigns.js";
 import { importContacts } from "../contacts.js";
+import { OutcomeDispatcher } from "../outcome-delivery.js";
 
 const databaseUrl = process.env.DATABASE_TEST_URL;
 if (!databaseUrl) throw new Error("Run this suite through npm run test:db with a disposable test database.");
@@ -260,4 +261,36 @@ test("append-only consent and DNC evidence survive Postgres restart and a withdr
     assert.throws(() => new ConsentPolicy(restored).authorize(phone), /opted out/);
     assert.equal(await sql.consentRecord.count({ where: { phone } }), 2);
   } finally { await restored.close(); await sql.$disconnect(); }
+});
+
+test("outcome outbox survives Postgres restart with stable signed payload and persisted retry count", async () => {
+  const store = await PrismaStore.connect(databaseUrl);
+  const original = store.saveFlow(flow()); await store.flush();
+  const contact = (await importContacts(store, `phone\n+659${String(Date.now()).slice(-7)}`)).contacts[0];
+  const campaign = await createCampaign(store, { name: "Durable outcomes", flowId: original.id, callerId: "+6562773211", contactIds: [contact.id] });
+  store.saveCampaign({ ...campaign, outcomeWebhookUrl: "https://receiver.example.test/outcomes", outcomeWebhookEnabledAt: "2026-09-11T01:00:00Z" });
+  const callId = nextId();
+  store.saveCall({ id: callId, providerCallId: nextId(), destination: contact.phone, callerId: campaign.callerId, flowId: original.id, flowVersion: 1, campaignId: campaign.id, contactId: contact.id, createdAt: "2026-09-11T01:01:00Z", endedAt: "2026-09-11T01:02:00Z", status: "ended", endReason: "USER_BUSY", outcome: "busy", events: [] });
+  await store.flush();
+  const secret = randomBytes(32).toString("hex"), allowedHosts = ["receiver.example.test"];
+  const first = new OutcomeDispatcher(store, { secret, allowedHosts, now: () => new Date("2026-09-11T01:03:00Z"), async fetch() { return new Response(null, { status: 503 }); } });
+  await first.tick(); await first.close();
+  const expected = store.listOutcomeDeliveries(campaign.id)[0]; assert.equal(expected.attempts, 1); assert.equal(expected.status, "pending");
+  await store.close();
+  const restored = await PrismaStore.connect(databaseUrl);
+  let sent = 0;
+  const second = new OutcomeDispatcher(restored, { secret, allowedHosts, now: () => new Date("2026-09-11T01:04:00Z"), async fetch(_url, init) {
+    sent++; assert.equal(String(init?.body), expected.payload); assert.equal(new Headers(init?.headers).get("X-MKTR-Delivery"), expected.id);
+    const sql = new PrismaClient({ datasourceUrl: databaseUrl });
+    try { assert.equal((await sql.outcomeDelivery.findUniqueOrThrow({ where: { id: expected.id } })).attempts, 2); }
+    finally { await sql.$disconnect(); }
+    return new Response(null, { status: 204 });
+  } });
+  try {
+    assert.equal(restored.getCampaign(campaign.id)?.outcomeWebhookUrl, "https://receiver.example.test/outcomes");
+    assert.equal(restored.getCall(callId)?.outcome, "busy");
+    await second.tick(); await second.tick(); assert.equal(sent, 1);
+    assert.equal(restored.listOutcomeDeliveries(campaign.id)[0].status, "delivered");
+    assert.throws(() => restored.saveOutcomeDelivery({ ...restored.listOutcomeDeliveries(campaign.id)[0], payload: "{}" }), /immutable/);
+  } finally { await second.close(); await restored.close(); }
 });

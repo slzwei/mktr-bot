@@ -9,7 +9,7 @@ import { FreeSwitchHealthProbe, type TelephonyHealth } from "./health.js";
 export type TelephonyCall = { providerCallId: string };
 export type ProviderChannel = { providerCallId: string; callerName: string };
 export type TelephonyEvent = {
-  type: "dialing" | "ringing" | "answered" | "hangup" | "playbackStopped" | "originateFailed";
+  type: "dialing" | "ringing" | "answered" | "hangup" | "playbackStopped" | "originateFailed" | "voicemail";
   providerCallId: string;
   cause?: string;
   playbackId?: string;
@@ -20,6 +20,8 @@ export interface TelephonyAdapter {
   originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId?: string, guard?: CommandGuard): Promise<TelephonyCall>;
   playClip(providerCallId: string, clip: Clip, playbackId?: string): Promise<void>;
   hangup(providerCallId: string): Promise<void>;
+  startAnsweringMachineDetection?(providerCallId: string): Promise<void>;
+  startRecording?(providerCallId: string, callId: string): Promise<void>;
   startListening?(providerCallId: string, callId: string, windowId: string): Promise<void>;
   stopListening?(providerCallId: string): Promise<void>;
   listChannels?(): Promise<ProviderChannel[]>;
@@ -130,6 +132,16 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
     await this.client.command(`api uuid_broadcast ${providerCallId} ${config.freeswitch.mediaDirectory}/${filename} aleg`);
   }
 
+  async startAnsweringMachineDetection(providerCallId: string): Promise<void> {
+    this.assertUuid(providerCallId);
+    await this.client.command(`api avmd ${providerCallId} start`);
+  }
+
+  async startRecording(providerCallId: string, callId: string): Promise<void> {
+    this.assertUuid(providerCallId); this.assertUuid(callId);
+    await this.client.command(`api uuid_record ${providerCallId} start /var/lib/freeswitch/recordings/sessions/${callId}.wav`);
+  }
+
   async startListening(providerCallId: string, callId: string, windowId: string): Promise<void> {
     [providerCallId, callId, windowId].forEach((id) => this.assertUuid(id));
     if (this.media.webhookToken.length < 16 || !/^[A-Za-z0-9_-]+$/.test(this.media.webhookToken)) {
@@ -186,7 +198,11 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
     if (event.name === "CHANNEL_CREATE") this.emit({ type: "dialing", providerCallId });
     if (event.name === "CHANNEL_PROGRESS") this.emit({ type: "ringing", providerCallId });
     if (event.name === "CHANNEL_ANSWER") this.emit({ type: "answered", providerCallId });
-    if (event.name === "CHANNEL_HANGUP_COMPLETE") this.emit({ type: "hangup", providerCallId, cause: event.headers["hangup-cause"] ?? "NORMAL_CLEARING" });
+    if (event.name === "CHANNEL_HANGUP_COMPLETE") {
+      this.streams.delete(providerCallId);
+      this.emit({ type: "hangup", providerCallId, cause: event.headers["hangup-cause"] ?? "NORMAL_CLEARING" });
+    }
+    if (event.name === "CUSTOM" && event.headers["event-subclass"] === "avmd::beep" && event.headers["beep-status"]?.toUpperCase() === "DETECTED") this.emit({ type: "voicemail", providerCallId });
     if (event.name === "PLAYBACK_STOP") this.emit({ type: "playbackStopped", providerCallId, playbackId: event.headers["variable_mktr_playback_id"] });
   }
 }

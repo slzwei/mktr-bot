@@ -1,3 +1,5 @@
+import { recordingFilename } from "./recordings.js";
+import { stat } from "node:fs/promises";
 import { complianceRoutes } from "./compliance-routes.js";
 import { DialConsentError } from "./compliance.js";
 import cors from "cors";
@@ -14,6 +16,8 @@ import { createAuth, requireAdmin, requireMediaGateway, type AuthStore } from ".
 import { config } from "./config.js";
 import { CampaignDialer, campaignDetail, createCampaign } from "./campaigns.js";
 import { importContacts } from "./contacts.js";
+import { campaignCsv } from "./outcomes.js";
+import { validateOutcomeWebhook, type OutcomeWebhookConfig } from "./outcome-delivery.js";
 import type { TranscriptClassifier } from "./classifier.js";
 import { validateFlow } from "./flow-validation.js";
 import { logger as defaultLogger, withLogContext } from "./logger.js";
@@ -40,6 +44,7 @@ export type AppDependencies = {
   metrics?: VoiceMetrics;
   callRateLimit?: number;
   campaignDialer?: CampaignDialer;
+  outcomeWebhook?: OutcomeWebhookConfig;
 };
 
 export function createApp(dependencies: AppDependencies) {
@@ -52,6 +57,7 @@ export function createApp(dependencies: AppDependencies) {
   const streams = new Set<Response>();
   const auth = createAuth(authStore);
   const campaigns = dependencies.campaignDialer ?? new CampaignDialer(store, calls, { logger });
+  const outcomeWebhook = dependencies.outcomeWebhook ?? config.outcomeWebhook;
   app.disable("x-powered-by");
   app.set("trust proxy", dependencies.trustProxy ?? config.trustProxy);
   app.use(helmet({
@@ -123,6 +129,17 @@ export function createApp(dependencies: AppDependencies) {
     response.json({ flows: await store.listFlows(), clips: await store.listClips(), calls: await store.listCalls(), trunk: getTrunkStatus(calls.activeCallCount(), adapter) });
   });
   app.use("/api/compliance", complianceRoutes(store));
+  app.get("/api/calls/:id/recording", async (request, response) => {
+    const call = store.getCall(request.params.id);
+    if (!call?.recordingFile || !call.recordingExpiresAt || Date.parse(call.recordingExpiresAt) <= Date.now()) throw new HttpError(404, "Recording is unavailable or has expired.");
+    if (!["ended", "failed"].includes(call.status)) throw new HttpError(409, "Recording is available after the call ends.");
+    const filename = recordingFilename(call.recordingFile);
+    const location = path.join(config.recording.directory, filename);
+    try { if (!(await stat(location)).isFile()) throw new HttpError(404, "Recording file is unavailable."); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new HttpError(404, "Recording file is unavailable."); throw error; }
+    response.setHeader("Cache-Control", "no-store");
+    return response.download(location, filename);
+  });
   app.get("/api/contacts", (_request, response) => response.json(store.listContacts()));
   app.post("/api/contacts/import", async (request, response) => {
     const body = z.object({ csv: z.string().min(1).max(1_000_000) }).strict().parse(request.body);
@@ -130,6 +147,29 @@ export function createApp(dependencies: AppDependencies) {
   });
   app.get("/api/campaigns", (_request, response) => response.json(store.listCampaigns().map((campaign) => campaignDetail(store, campaign.id))));
   app.get("/api/campaigns/:id", (request, response) => response.json(campaignDetail(store, request.params.id)));
+  app.get("/api/campaigns/:id/export.csv", (request, response) => {
+    if (!store.getCampaign(request.params.id)) throw new HttpError(404, "Campaign not found.");
+    const rows = store.listCalls().filter((call) => call.campaignId === request.params.id);
+    response.setHeader("Content-Type", "text/csv; charset=utf-8");
+    response.setHeader("Content-Disposition", `attachment; filename="campaign-${request.params.id}.csv"`);
+    return response.send(campaignCsv(rows));
+  });
+  app.get("/api/campaigns/:id/outcome-deliveries", (request, response) => {
+    if (!store.getCampaign(request.params.id)) throw new HttpError(404, "Campaign not found.");
+    const deliveries = store.listOutcomeDeliveries(request.params.id).map(({ id, callId, status, attempts, nextAttemptAt, createdAt, deliveredAt, lastError }) => ({ id, callId, status, attempts, nextAttemptAt, createdAt, deliveredAt, lastError }));
+    return response.json({ configured: Boolean(outcomeWebhook.secret && outcomeWebhook.allowedHosts.length), deliveries });
+  });
+  app.put("/api/campaigns/:id/outcome-webhook", requireAdmin, async (request, response) => {
+    const body = z.object({ url: z.string().trim().max(2048).nullable() }).strict().parse(request.body);
+    const campaign = store.getCampaign(z.string().uuid().parse(request.params.id));
+    if (!campaign) throw new HttpError(404, "Campaign not found.");
+    if (body.url && (!outcomeWebhook.secret || !outcomeWebhook.allowedHosts.length)) throw new HttpError(503, "The administrator must configure the outcome webhook secret and approved hosts first.");
+    const url = body.url ? validateOutcomeWebhook(body.url, outcomeWebhook.allowedHosts) : undefined;
+    const enabledAt = url ? url === campaign.outcomeWebhookUrl && campaign.outcomeWebhookEnabledAt ? campaign.outcomeWebhookEnabledAt : new Date().toISOString() : undefined;
+    store.saveCampaign({ ...campaign, outcomeWebhookUrl: url, outcomeWebhookEnabledAt: enabledAt, updatedAt: new Date().toISOString() });
+    await store.flush();
+    return response.json(campaignDetail(store, campaign.id));
+  });
   app.post("/api/campaigns", async (request, response) => {
     const campaign = await createCampaign(store, request.body);
     return response.status(201).json(campaignDetail(store, campaign.id));

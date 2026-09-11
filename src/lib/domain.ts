@@ -121,6 +121,8 @@ export type CallEvent = {
   latencyMs?: number;
 };
 
+export type CallOutcome = "completed" | "interested" | "not_interested" | "callback" | "unknown" | "busy" | "no_answer" | "failed" | "voicemail" | "stopped" | "inbound_callback";
+
 export type CallSession = {
   id: string;
   providerCallId: string;
@@ -140,9 +142,31 @@ export type CallSession = {
   lastListenWindowId?: string;
   lastUtteranceId?: string;
   retryAttempts?: Record<string, number>;
+  outcome?: CallOutcome;
+  recordingFile?: string;
+  recordingExpiresAt?: string;
+  direction?: "outbound" | "inbound_callback";
+  terminationIntent?: { status: "ended" | "failed"; reason: string };
   dialAuthorization?: { basis: "consent" | "dnc"; recordId: string; checkedAt: string };
   events: CallEvent[];
 };
+
+
+export type OutcomeDelivery = {
+  id: string;
+  callId: string;
+  campaignId: string;
+  url: string;
+  payload: string;
+  attempts: number;
+  status: "pending" | "delivered" | "failed";
+  nextAttemptAt: string;
+  createdAt: string;
+  deliveredAt?: string;
+  lastError?: string;
+};
+
+export type OutcomeDeliverySummary = Pick<OutcomeDelivery, "id" | "callId" | "status" | "attempts" | "nextAttemptAt" | "createdAt" | "deliveredAt" | "lastError">;
 
 export type TelephonyMode = "simulated" | "freeswitch";
 export type ClassifierMode = "rules" | "openai";
@@ -208,6 +232,8 @@ export type Campaign = {
   dialIntervalMs: number;
   lastDialAt?: string;
   lastError?: string;
+  outcomeWebhookUrl?: string;
+  outcomeWebhookEnabledAt?: string;
   createdAt: string;
   updatedAt: string;
 };

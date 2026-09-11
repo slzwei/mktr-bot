@@ -1,3 +1,4 @@
+import { outcomeForCall } from "./outcomes.js";
 import { ConsentPolicy, DialConsentError, isVoiceOptOut, type DialPolicy } from "./compliance.js";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -55,6 +56,7 @@ export class CallOrchestrator {
   private readonly traversalHops = new Map<string, number>();
   private pendingStarts = 0;
   private readonly playbacks = new Map<string, { id: string; target: string }>();
+  private readonly terminationReasons = new Map<string, { status: "ended" | "failed"; reason: string }>();
   private readonly terminations = new Map<string, Promise<CallSession>>();
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly listenTimers = new Map<string, NodeJS.Timeout>();
@@ -71,12 +73,14 @@ export class CallOrchestrator {
     private readonly classifier: TranscriptClassifier = createTranscriptClassifier(),
     private readonly playbackDelay: PlaybackDelay = defaultPlaybackDelay,
     private readonly deadlines = { originateTimeoutMs: config.originateTimeoutSeconds * 1000, maxCallMs: config.maxCallSeconds * 1000 },
-    private readonly dialPolicy: DialPolicy = new ConsentPolicy(store)
+    private readonly dialPolicy: DialPolicy = new ConsentPolicy(store),
+    private readonly recording = config.recording
   ) {
     for (const session of store.listCalls().filter((call) => activeStatuses.has(call.status))) {
       const graph = store.getFlowVersion(session.flowId, session.flowVersion);
       if (!graph) throw new Error(`Active call ${session.id} has no immutable flow version.`);
       this.flowSnapshots.set(session.id, graph);
+      if (session.terminationIntent) this.terminationReasons.set(session.id, session.terminationIntent);
     }
     this.unsubscribeAdapter = adapter.onEvent?.((event) => {
       void this.handleTelephonyEvent(event).catch((error: unknown) => {
@@ -265,6 +269,16 @@ export class CallOrchestrator {
       this.traversalHops.set(session.id, 0);
       await this.transition(session, "answered", "answered", "Call answered");
       this.after(session.id, this.deadlines.maxCallMs, async (current) => { await this.finish(current, "ended", "ALLOTTED_TIMEOUT"); });
+      if (this.adapter.mode === "freeswitch") {
+        await this.adapter.startAnsweringMachineDetection?.(session.providerCallId);
+        if (this.recording.enabled && activeStatuses.has(this.store.getCall(id)?.status ?? "failed") && !this.terminations.has(id)) {
+          if (!this.adapter.startRecording) throw new Error("The telephony adapter cannot record this call.");
+          session.recordingFile = `${session.id}.wav`;
+          session.recordingExpiresAt = new Date(Date.now() + this.recording.retentionDays * 86_400_000).toISOString();
+          await this.persist(session);
+          await this.adapter.startRecording(session.providerCallId, session.id);
+        }
+      }
       await this.advance(session, flow, flow.startNodeId);
       return this.store.getCall(id) ?? session;
     } catch (error) {
@@ -498,6 +512,8 @@ export class CallOrchestrator {
     await this.persist(session);
     try {
       await this.adapter.stopListening?.(session.providerCallId);
+      const latest = this.store.getCall(id);
+      if (!latest || !activeStatuses.has(latest.status) || this.terminations.has(id)) return;
       const flow = this.flowForSession(session);
       const route = flow && this.outgoing(flow, session.currentNodeId!).find((edge) => edge.condition?.fallback);
       if (!flow || !route) throw new Error("No-speech timeout has no fallback route.");
@@ -655,11 +671,17 @@ export class CallOrchestrator {
   }
 
   private async complete(session: CallSession, status: "ended" | "failed", reason: string): Promise<CallSession> {
+    const current = this.store.getCall(session.id);
+    if (current && !activeStatuses.has(current.status)) return current;
+    const intended = session.terminationIntent ?? this.terminationReasons.get(session.id);
+    if (intended) { status = intended.status; reason = intended.reason; }
     this.cancelSchedule(session.id);
+    session.terminationIntent = undefined;
     session.status = status;
     session.endedAt = new Date().toISOString();
     session.listenWindowId = undefined;
     session.endReason = reason;
+    session.outcome = session.direction === "inbound_callback" ? "inbound_callback" : outcomeForCall(reason, status, session.classifierResult?.intent);
     this.record(session, status === "failed" ? "error" : "ended", status === "failed" ? "Call failed" : "Call ended", reason);
     await this.persist(session);
     this.cleanupRuntimeState(session.id);
@@ -672,12 +694,18 @@ export class CallOrchestrator {
     const existing = this.terminations.get(session.id);
     if (existing) return existing;
     this.cancelSchedule(session.id);
+    const intended = current.terminationIntent ?? { status, reason };
+    current.terminationIntent = intended;
+    this.terminationReasons.set(session.id, intended);
     const operation = (async () => {
       try {
+        // Record why we are terminating before requesting it. A database failure must not prevent a safety hangup.
+        try { await this.persist(current); }
+        catch (error) { logger.error({ callId: current.id, err: error }, "Termination intent could not be persisted; still attempting provider hangup"); }
         await this.adapter.hangup(current.providerCallId);
         const latest = this.store.getCall(current.id) ?? current;
         if (!activeStatuses.has(latest.status)) return latest;
-        return await this.complete(latest, status, reason);
+        return await this.complete(latest, intended.status, intended.reason);
       } catch (error) {
         const latest = this.store.getCall(current.id) ?? current;
         if (!activeStatuses.has(latest.status)) return latest;
@@ -687,7 +715,8 @@ export class CallOrchestrator {
       }
     })();
     this.terminations.set(session.id, operation);
-    void operation.then(() => this.terminations.delete(session.id), () => this.terminations.delete(session.id));
+    const clear = () => { this.terminations.delete(session.id); };
+    void operation.then(clear, clear);
     return operation;
   }
 
@@ -714,8 +743,12 @@ export class CallOrchestrator {
     const session = this.store.listCalls().find((call) => call.providerCallId === event.providerCallId);
     if (!session || !activeStatuses.has(session.status)) return;
     if (event.type === "hangup") {
-      await this.complete(session, "ended", event.cause ?? "NORMAL_CLEARING");
+      const pending = this.terminationReasons.get(session.id);
+      await this.complete(session, pending?.status ?? "ended", pending?.reason ?? event.cause ?? "NORMAL_CLEARING");
       return;
+    }
+    if (event.type === "voicemail") {
+      await this.finish(session, "ended", "AMD_VOICEMAIL"); return;
     }
     if (this.stopping || this.reconciling) return;
     await this.enqueue(session.id, async () => {
@@ -736,6 +769,7 @@ export class CallOrchestrator {
   }
 
   private cleanupRuntimeState(callId: string) {
+    this.terminationReasons.delete(callId);
     this.playbacks.delete(callId);
     this.flowSnapshots.delete(callId);
     this.simulationReplies.delete(callId);
@@ -763,6 +797,8 @@ export class CallOrchestrator {
   }
 
   private async persist(session: CallSession) {
+    const current = this.store.getCall(session.id);
+    if (current && !activeStatuses.has(current.status)) return;
     this.store.saveCall(session);
     await this.store.flush();
     this.publish(this.store.getCall(session.id) ?? session);

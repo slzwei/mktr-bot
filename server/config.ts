@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { ClassifierMode, TelephonyMode } from "../src/lib/domain.js";
 import { assertGatewayStartupConfiguration } from "./gateway-security.js";
+import { outcomeWebhookConfig } from "./outcome-delivery.js";
 
 const int = (value: string | undefined, fallback: number) => {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -31,7 +32,13 @@ export const config = {
   maxConcurrentCalls: boundedInteger(process.env.MKTR_MAX_CONCURRENT_CALLS, 5, 1, 5),
   originateTimeoutSeconds: boundedInteger(process.env.MKTR_ORIGINATE_TIMEOUT_SECONDS, 30, 1, 120),
   maxCallSeconds: boundedInteger(process.env.MKTR_MAX_CALL_SECONDS, 180, 1, 1800),
+  outcomeWebhook: outcomeWebhookConfig(process.env),
   clipStorageDir: process.env.MKTR_CLIP_STORAGE_DIR ?? path.join(process.cwd(), "storage", "clips"),
+  recording: {
+    enabled: process.env.MKTR_RECORDING_ENABLED === "true",
+    directory: process.env.MKTR_RECORDING_STORAGE_DIR ?? path.join(process.cwd(), "storage", "recordings"),
+    retentionDays: boundedInteger(process.env.MKTR_RECORDING_RETENTION_DAYS, 30, 1, 365)
+  },
   classifier: {
     mode: process.env.MKTR_CLASSIFIER_MODE === "openai"
       ? "openai"

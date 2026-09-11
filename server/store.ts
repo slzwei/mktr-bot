@@ -2,7 +2,7 @@ import { HttpError } from "./http-error.js";
 import type { ConsentRecord, DncClearance, DialPermissionStore } from "./compliance.js";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { isCallerId, type CallSession, type Campaign, type CampaignContact, type Clip, type Contact, type FlowDefinition, type FlowNode } from "../src/lib/domain.js";
+import { isCallerId, type CallSession, type Campaign, type CampaignContact, type Clip, type Contact, type FlowDefinition, type FlowNode, type OutcomeDelivery } from "../src/lib/domain.js";
 
 const now = () => new Date().toISOString();
 
@@ -200,6 +200,7 @@ export type StoreSnapshot = {
   contacts?: Contact[];
   campaigns?: Campaign[];
   campaignContacts?: CampaignContact[];
+  outcomeDeliveries?: OutcomeDelivery[];
 };
 
 /** Mutations update the process cache immediately. Await flush before acknowledging
@@ -233,6 +234,8 @@ export interface Store extends DialPermissionStore {
   listCampaignContacts(campaignId: string): CampaignContact[];
   saveCampaignContact(contact: CampaignContact): CampaignContact;
   assertHealthy(): void;
+  listOutcomeDeliveries(campaignId?: string): OutcomeDelivery[];
+  saveOutcomeDelivery(delivery: OutcomeDelivery): OutcomeDelivery;
   flush(): Promise<void>;
   close(): Promise<void>;
 }
@@ -249,6 +252,7 @@ export class InMemoryStore implements Store {
   protected readonly contacts = new Map<string, Contact>();
   protected readonly campaigns = new Map<string, Campaign>();
   protected readonly campaignContacts = new Map<string, CampaignContact>();
+  protected readonly outcomeDeliveries = new Map<string, OutcomeDelivery>();
 
   constructor(snapshot?: StoreSnapshot) {
     const initial = snapshot ?? { flows: [initialFlow], versions: [initialFlow], clips, calls: [] };
@@ -266,6 +270,7 @@ export class InMemoryStore implements Store {
       this.complianceIds.add(record.id);
     });
     initial.dncClearances?.forEach((record) => { this.dncClearances.set(record.phone, clone(record)); this.complianceIds.add(record.id); });
+    initial.outcomeDeliveries?.forEach((delivery) => this.outcomeDeliveries.set(delivery.id, clone(delivery)));
     this.refreshClipUsage();
   }
 
@@ -414,6 +419,21 @@ export class InMemoryStore implements Store {
   }
   assertHealthy(): void { this.assertWritable(); }
   async flush(): Promise<void> { return; }
+  listOutcomeDeliveries(campaignId?: string): OutcomeDelivery[] { return [...this.outcomeDeliveries.values()].filter((entry) => campaignId === undefined || entry.campaignId === campaignId).map(clone); }
+  saveOutcomeDelivery(delivery: OutcomeDelivery): OutcomeDelivery {
+    this.assertWritable();
+    const call = this.getCall(delivery.callId);
+    if (!call || call.campaignId !== delivery.campaignId || !this.getCampaign(delivery.campaignId)) throw new Error("Outcome delivery requires a call belonging to the campaign.");
+    if (!Number.isSafeInteger(delivery.attempts) || delivery.attempts < 0 || delivery.attempts > 8) throw new Error("Outcome delivery allows at most eight attempts.");
+    const previous = this.outcomeDeliveries.get(delivery.id);
+    if (previous && (previous.callId !== delivery.callId || previous.campaignId !== delivery.campaignId || previous.url !== delivery.url || previous.payload !== delivery.payload || previous.createdAt !== delivery.createdAt)) throw new Error("Outcome delivery identity, target and payload are immutable.");
+    if (previous && delivery.attempts < previous.attempts) throw new Error("Outcome delivery attempts cannot decrease.");
+    if (previous && previous.status !== "pending" && delivery.status !== previous.status) throw new Error("Terminal outcome delivery status cannot change.");
+    if ([...this.outcomeDeliveries.values()].some((entry) => entry.id !== delivery.id && entry.callId === delivery.callId)) throw new Error("A call has exactly one stable outcome delivery.");
+    this.outcomeDeliveries.set(delivery.id, clone(delivery));
+    this.writeOutcomeDelivery(clone(delivery));
+    return clone(delivery);
+  }
   async close(): Promise<void> { return; }
   protected assertWritable(): void { return; }
   protected writeFlowDeletion(_id: string): void { return; }
@@ -424,6 +444,7 @@ export class InMemoryStore implements Store {
   protected writeContacts(_contacts: Contact[]): void { return; }
   protected writeCampaign(_campaign: Campaign, _contacts?: CampaignContact[]): void { return; }
   protected writeCampaignContact(_contact: CampaignContact): void { return; }
+  protected writeOutcomeDelivery(_delivery: OutcomeDelivery): void { return; }
   protected versionKey(id: string, version: number): string { return `${id}:${version}`; }
   protected refreshClipUsage(): void {
     const usage = new Map<string, number>();

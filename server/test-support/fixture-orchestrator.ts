@@ -5,7 +5,7 @@ import type { DialPolicy } from "../compliance.js";
  * This file is excluded from the production compiler and Docker build context. */
 const fixturePolicy: DialPolicy = { authorize: () => ({ basis: "consent", recordId: "test-only-consent", checkedAt: new Date().toISOString() }) };
 export class FixtureCallOrchestrator extends CallOrchestrator {
-  constructor(...[store, adapter, classifier, playbackDelay, deadlines, policy]: ConstructorParameters<typeof CallOrchestrator>) {
-    super(store, adapter, classifier, playbackDelay, deadlines, policy ?? fixturePolicy);
+  constructor(...[store, adapter, classifier, playbackDelay, deadlines, policy, recording]: ConstructorParameters<typeof CallOrchestrator>) {
+    super(store, adapter, classifier, playbackDelay, deadlines, policy ?? fixturePolicy, recording);
   }
 }

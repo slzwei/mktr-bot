@@ -55,7 +55,7 @@ export type EslOptions = {
   timeoutMs?: number;
   reconnectMs?: number;
 };
-const subscriptions = "BACKGROUND_JOB CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE PLAYBACK_STOP";
+const subscriptions = "BACKGROUND_JOB CHANNEL_CREATE CHANNEL_PROGRESS CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE PLAYBACK_STOP CUSTOM avmd::beep";
 
 /** One authenticated connection; commands are serialized and never replayed on reconnect. */
 export class EslClient {

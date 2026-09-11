@@ -170,3 +170,9 @@ Confirm simulator mode, `gateway: "n/a"`, zero active calls, gateway stopped, an
 Run `npm run verify:runbook` after editing this document. It syntax-checks every Bash block without evaluation, executes the gateway renderer with dummy inputs, verifies private diagnostic command construction using a fake Docker executable, and exercises the first-call config inspector with generated fixtures. It does not execute runbook deployment commands, call Singtel, or contact STT/OpenAI.
 
 A8 remains blocked by **Shawn's review and designation of the one approved E.164 destination**. Docker-dependent functional checks remain blocked here by **Docker not installed on host**. Singtel REGED/TLS, actual gateway image execution, real audio/STT, and the operator call are intentionally left to this runbook. Add the operator's dated review and actual results to the checklist before changing the relevant blocked status.
+
+## Later controlled checks for campaigns
+
+After the first human test succeeds, Shawn checks a separately approved voicemail destination and confirms a detected beep produces `voicemail` and an immediate hangup. The local detector can miss machines without a beep or misidentify tones; inspect `avmd::beep` events and the selected flow timing before campaigning. Verify busy/no-answer outcomes using controlled destinations and provider logs.
+
+Recording is off by default. If MKTR needs it, review the opening notice and retention period, enable the optional recording setting on the host, then use an approved test to confirm the authenticated download contains the expected audio. Check that API and gateway share the recording volume and UID 1000. Review purge logs and `docs/recording-and-amd.md`; no recording or detector quality has been verified by the agent. Configure an outcome receiver only after it verifies HMAC signatures and deduplicates delivery IDs as described in `docs/outcome-webhooks.md`.

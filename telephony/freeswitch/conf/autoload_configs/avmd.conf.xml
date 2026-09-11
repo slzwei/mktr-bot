@@ -1,0 +1,15 @@
+<configuration name="avmd.conf" description="MKTR callee beep detection">
+  <settings>
+    <param name="debug" value="0"/>
+    <param name="report_status" value="0"/>
+    <param name="inbound_channel" value="0"/>
+    <param name="outbound_channel" value="1"/>
+    <param name="detection_mode" value="2"/>
+    <param name="require_continuous_streak" value="1"/>
+    <param name="sample_n_continuous_streak" value="3"/>
+    <param name="require_continuous_streak_amp" value="1"/>
+    <param name="sample_n_continuous_streak_amp" value="3"/>
+    <param name="detectors_n" value="36"/>
+    <param name="detectors_lagged_n" value="1"/>
+  </settings>
+</configuration>

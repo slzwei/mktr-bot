@@ -1,0 +1,26 @@
+# Campaign outcomes, CSV and webhook delivery
+
+Every signed-in operator can download **Export campaign CSV** from a selected campaign. `GET /api/campaigns/:id/export.csv` contains one row per call attempt, including active attempts, with call/campaign/contact IDs, destination, caller ID, pinned flow version, start/end times, status, normalized outcome and hangup reason. The export includes only that campaign. All fields are quoted; embedded quotes are doubled and newlines become spaces so each call occupies one physical CSV row. Cells beginning with spreadsheet formula characters receive a leading apostrophe, including E.164 phone numbers, to preserve the number as text and prevent formula execution.
+
+Call history shows normalized outcomes when present and retains the provider reason as a tooltip. Recording download links appear only when a call has recording metadata and its retention deadline has not passed; downloads use the authenticated `GET /api/calls/:id/recording` endpoint. Recording, AMD and purge behavior are documented with the integrated C3 runtime; a link does not prove live recording has been tested.
+
+Webhooks are disabled by default. On the deployment host, an administrator configures a random `MKTR_OUTCOME_WEBHOOK_SECRET` of at least 32 characters and `MKTR_OUTCOME_WEBHOOK_ALLOWED_HOSTS`, a comma-separated list of exact approved hostnames. Wildcards, schemes, paths and ports are not permitted in the host list. Both settings are required together and are never returned to the browser. Host approval authorizes where contact/call data may be sent; review the receiving service before configuring it.
+
+In **Campaigns → Outcomes and export → Outcome webhook**, an administrator saves a per-campaign HTTPS URL on an approved host. Credentials in URLs, fragments, non-HTTPS schemes and nonstandard ports are rejected. Operators can see delivery status and export data; only administrators can change webhook settings. The API endpoint is `PUT /api/campaigns/:id/outcome-webhook` with `{ "url": "https://approved-host/path" }`, or `{ "url": null }` to disable new delivery. Changing or enabling the endpoint applies to completions after that change; previously completed calls are available in CSV rather than automatically sent as a backlog. Already queued deliveries retain their endpoint and can retry after the setting is changed or disabled. Removing a hostname from the server allowlist blocks those queued deliveries before any request is made.
+
+Each final call outcome creates one durable Postgres `OutcomeDelivery` with a unique `callId`, a generated delivery UUID and immutable URL/body. A one-second scheduler discovers committed final calls, which also recovers the gap between a call finishing and its outbox entry being created. It processes at most ten due deliveries in a tick. Requests use `POST`, JSON, no redirects and a three-second timeout. Only HTTP 2xx acknowledges receipt; the body is discarded without buffering.
+
+Each attempt is persisted before sending. Failures retry after 2, 4, 8, 16, 32, 64 and 128 seconds, stopping after eight attempts. A crash can leave uncertainty about whether the receiver accepted the last request, so retries retain the same delivery ID and exact body. A pending delivery already at attempt eight is marked failed after restart and is never sent a ninth time. Failed deliveries require recipient review using the delivery ID; there is no automatic counter reset or resend button. Delivery is **at least once**, so the receiver must deduplicate before applying a side effect.
+
+Requests contain:
+
+- `X-MKTR-Delivery`: stable delivery UUID.
+- `X-MKTR-Timestamp`: attempt timestamp in Unix seconds.
+- `X-MKTR-Signature`: `v1=` followed by lowercase HMAC-SHA256 hex over `timestamp + "." + rawBody`, using the shared secret.
+- `Content-Type: application/json`.
+
+The JSON body identifies `type: "call.outcome"`, `deliveryId`, `callId`, `campaignId`, `contactId`, `destination`, `callerId`, `flowId`, `flowVersion`, `direction`, `outcome`, `endReason`, `createdAt` and `endedAt`. Optional source fields may be absent. Verify the signature against the raw request bytes before parsing, reject timestamps more than five minutes from receiver time, and compare signatures in constant time. Store the delivery UUID transactionally with the recipient action; duplicate valid deliveries should return 2xx without applying it again. Keep host and receiver clocks synchronized. Rotate the shared secret together on sender and receiver; queued payloads stay the same but each attempt is signed with the current secret and timestamp.
+
+Authenticated `GET /api/campaigns/:id/outcome-deliveries` exposes delivery IDs, call IDs, state, attempt counts and safe error summaries. It does not expose payloads, signing secrets or signatures. Storage failure halts the dispatcher and logs context until API restart; shutdown awaits any in-flight delivery before disconnecting Postgres. A disabled signing configuration pauses outbound delivery entirely.
+
+Verification here uses injected fake HTTP receivers, a disposable native PostgreSQL database, and simulator browser downloads. No webhook was sent to an external service. Real SIP, AMD, recording quality and the recipient integration remain operator checks in the first-live-call runbook.

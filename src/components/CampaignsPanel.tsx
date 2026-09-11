@@ -4,11 +4,12 @@ import { api } from "../lib/api";
 import { CALLER_IDS, type CallingHours, type CampaignDetail, type Contact, type FlowDefinition } from "../lib/domain";
 import { ConsentPanel } from "./ConsentPanel";
 import "./campaigns.css";
+import { CampaignOutcomes } from "./CampaignOutcomes";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const message = (error: unknown) => error instanceof Error ? error.message : "Could not update the campaign.";
 
-export function CampaignsPanel({ flows }: { flows: FlowDefinition[] }) {
+export function CampaignsPanel({ flows, canManageWebhooks = false }: { flows: FlowDefinition[]; canManageWebhooks?: boolean }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignDetail[]>([]);
   const [selected, setSelected] = useState("");
@@ -89,6 +90,7 @@ export function CampaignsPanel({ flows }: { flows: FlowDefinition[] }) {
         {active.lastError && <p role="alert">{active.lastError}</p>}
         <div className="campaign-counts" data-testid="campaign-progress"><span>{active.progress.total} total</span><span>{active.progress.pending} pending</span><span>{active.progress.dialing} active</span><span>{active.progress.completed} completed</span><span>{active.progress.skipped} skipped</span></div>
         <div className="campaign-table-scroll"><table><thead><tr><th>Contact</th><th>Phone</th><th>Status</th><th>Attempts</th><th>Outcome</th><th>Next attempt / detail</th></tr></thead><tbody>{active.contacts.map((entry) => <tr key={entry.id} data-testid="campaign-contact-row"><td>{entry.contact.name || "—"}</td><td>{entry.contact.phone}</td><td>{entry.status}</td><td>{entry.attempts}</td><td>{entry.outcome ?? "—"}</td><td>{entry.skipReason ?? entry.lastError ?? (entry.nextAttemptAt ? new Date(entry.nextAttemptAt).toLocaleString("en-SG", { timeZone: "Asia/Singapore" }) : "—")}</td></tr>)}</tbody></table></div>
+        <CampaignOutcomes key={active.id} campaign={active} canManage={canManageWebhooks} onSaved={refresh} />
       </>}
     </section>
   </div>;

@@ -26,7 +26,12 @@ services:
       MKTR_MAX_CONCURRENT_CALLS: ${MKTR_MAX_CONCURRENT_CALLS:-5}
       MKTR_ORIGINATE_TIMEOUT_SECONDS: ${MKTR_ORIGINATE_TIMEOUT_SECONDS:-30}
       MKTR_MAX_CALL_SECONDS: ${MKTR_MAX_CALL_SECONDS:-180}
+      MKTR_OUTCOME_WEBHOOK_ALLOWED_HOSTS: ${MKTR_OUTCOME_WEBHOOK_ALLOWED_HOSTS:-}
+      MKTR_OUTCOME_WEBHOOK_SECRET: ${MKTR_OUTCOME_WEBHOOK_SECRET:-}
       MKTR_CLIP_STORAGE_DIR: /app/storage/clips
+      MKTR_RECORDING_STORAGE_DIR: /app/storage/recordings
+      MKTR_RECORDING_ENABLED: ${MKTR_RECORDING_ENABLED:-false}
+      MKTR_RECORDING_RETENTION_DAYS: ${MKTR_RECORDING_RETENTION_DAYS:-30}
       MKTR_SINGTEL_SIP_HOST: sipsg01.b3networks.com
       MKTR_SINGTEL_SIP_IP: 52.77.0.62
       MKTR_SINGTEL_PCMA_PORT: 5061
@@ -47,6 +52,7 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - clip-data:/app/storage/clips
+      - recording-data:/app/storage/recordings
       - ${MKTR_SINGTEL_CA_CERT_PATH:-./telephony/freeswitch/certs/CA_Certificate-2.pem}:/run/secrets/singtel-ca:ro
     depends_on:
       postgres:
@@ -165,6 +171,7 @@ services:
       - ${MKTR_SINGTEL_CA_CERT_PATH:-./telephony/freeswitch/certs/cafile.pem}:/run/secrets/singtel-ca:ro
       - ${MKTR_FREESWITCH_TLS_PEM_PATH:-./telephony/freeswitch/certs/agent.pem}:/run/secrets/freeswitch-agent:ro
       - clip-data:/var/lib/freeswitch/recordings/mktr:ro
+      - recording-data:/var/lib/freeswitch/recordings/sessions
       - freeswitch-db:/var/lib/freeswitch/db
     tmpfs:
       - /etc/freeswitch:uid=1000,gid=1000,mode=0700
@@ -189,6 +196,7 @@ volumes:
   postgres-data:
   redis-data:
   clip-data:
+  recording-data:
   caddy-data:
   caddy-config:
   freeswitch-db:

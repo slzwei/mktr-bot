@@ -228,3 +228,4 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .sign-in-card input { width: 100%; min-width: 0; padding: 12px; border: 1px solid #cbd8d1; border-radius: 8px; font: inherit; }
 .sign-in-card [role="alert"] { color: #ab3232; font-size: 13px; }
 .sign-in-card button { justify-content: center; padding: 12px; }
+.history-recording { display: inline-block; margin: 0 14px 12px; color: #176e57; font-size: 11px; }

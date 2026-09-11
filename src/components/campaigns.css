@@ -26,5 +26,10 @@
 .campaign-card table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
 .campaign-card th { color: #647375; font-size: 11px; }
 .campaign-card td, .campaign-card th { border-bottom: 1px solid #e8eeee; padding: 12px 10px; }
+.campaign-outcomes { border-top: 1px solid #e2e9e6; margin-top: 22px; padding-top: 16px; }
+.campaign-outcomes-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.campaign-outcomes h3 { font-size: 14px; margin: 0; }
+.campaign-outcomes a { text-decoration: none; }
+.campaign-outcomes td { overflow-wrap: anywhere; }
 @media (max-width: 1000px) { .campaign-setup { grid-template-columns: 1fr; } .campaign-progress-header { align-items: start; flex-direction: column; } }
 @media (max-width: 650px) { .campaigns-view { padding: 18px; } .campaign-fields { grid-template-columns: 1fr; } }

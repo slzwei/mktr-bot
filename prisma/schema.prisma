@@ -99,6 +99,7 @@ model Call {
   events         CallEvent[]
   campaign       Campaign? @relation(fields: [campaignId], references: [id])
   contact        Contact? @relation(fields: [contactId], references: [id])
+  outcomeDelivery OutcomeDelivery?
 
   @@index([createdAt])
   @@index([flowId, flowVersion])
@@ -143,14 +144,42 @@ model Campaign {
   retryDelaySeconds Int
   dialIntervalMs    Int
   lastDialAt        DateTime?
+  outcomeWebhookUrl String?
+  outcomeWebhookEnabledAt DateTime?
   snapshot          Json
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   graphVersion      FlowVersion @relation(fields: [flowId, flowVersion], references: [flowId, version])
   contacts          CampaignContact[]
   calls             Call[]
+  outcomeDeliveries OutcomeDelivery[]
 
   @@index([status, createdAt])
+}
+
+enum OutcomeDeliveryStatus {
+  pending
+  delivered
+  failed
+}
+
+model OutcomeDelivery {
+  id            String @id
+  callId        String @unique
+  campaignId    String
+  url           String
+  payload       String
+  attempts      Int @default(0)
+  status        OutcomeDeliveryStatus @default(pending)
+  nextAttemptAt DateTime
+  createdAt     DateTime @default(now())
+  deliveredAt   DateTime?
+  lastError     String?
+  call          Call @relation(fields: [callId], references: [id])
+  campaign      Campaign @relation(fields: [campaignId], references: [id])
+
+  @@index([status, nextAttemptAt])
+  @@index([campaignId, createdAt])
 }
 
 model CampaignContact {

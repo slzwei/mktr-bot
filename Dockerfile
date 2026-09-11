@@ -16,7 +16,7 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/prisma ./prisma
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/.server-dist ./.server-dist
-RUN mkdir -p /app/storage/clips && chown -R node:node /app/storage
+RUN mkdir -p /app/storage/clips /app/storage/recordings && chown -R node:node /app/storage
 USER node
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 CMD ["node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(error=>{console.error(error.message);process.exit(1)})"]
