@@ -15,6 +15,7 @@ COPY --from=build --chown=node:node /app/package*.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/prisma ./prisma
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/docs/runbook-first-live-call.md ./docs/runbook-first-live-call.md
 COPY --from=build --chown=node:node /app/.server-dist ./.server-dist
 RUN mkdir -p /app/storage/clips /app/storage/recordings && chown -R node:node /app/storage
 USER node

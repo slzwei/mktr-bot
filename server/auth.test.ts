@@ -8,6 +8,7 @@ import { createApp } from "./app.js";
 import { hashPassword, InMemoryAuthStore, seedAdmin, SESSION_COOKIE, type AuthUser } from "./auth.js";
 import { RuleClassifier } from "./classifier.js";
 import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
+import { config } from "./config.js";
 import { InMemoryStore } from "./store.js";
 import { SimulatedTelephonyAdapter } from "./telephony.js";
 
@@ -44,7 +45,30 @@ test("auth middleware rejects unauthenticated calls, publishing, uploads, flow w
   await request(app).put("/api/flows/flow-prospect-intake").send({}).expect(401);
   await request(app).get("/api/bootstrap").expect(401);
   await request(app).get("/api/calls/missing/events").expect(401);
+  await request(app).get("/api/settings").expect(401);
+  await request(app).get("/api/help/runbook").expect(401);
   await request(app).get("/api/health").expect(200);
+});
+
+test("operator settings never serialize credentials and the runbook is served after sign-in", async () => {
+  const { app, login } = await fixture();
+  const { cookie } = await login();
+  const previousKey = config.classifier.openaiApiKey;
+  const previousPassword = config.singtel.password;
+  config.classifier.openaiApiKey = "private-provider-sentinel";
+  config.singtel.password = "private-trunk-sentinel";
+  try {
+    const settings = await request(app).get("/api/settings").set("Cookie", cookie).expect(200);
+    assert.equal(settings.body.telephony.mode, "simulated");
+    assert.equal(settings.body.classifier.mode, "rules");
+    assert.doesNotMatch(settings.text, /private-provider-sentinel|private-trunk-sentinel|password|ApiKey|webhookToken|database/i);
+    const runbook = await request(app).get("/api/help/runbook").set("Cookie", cookie).expect(200);
+    assert.match(runbook.headers["content-type"], /^text\/plain/);
+    assert.match(runbook.text, /Shawn/);
+  } finally {
+    config.classifier.openaiApiKey = previousKey;
+    config.singtel.password = previousPassword;
+  }
 });
 
 test("wrong-origin preflight is rejected and allowed CORS is credentialed without a wildcard", async () => {

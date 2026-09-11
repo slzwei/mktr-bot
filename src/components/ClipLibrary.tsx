@@ -1,21 +1,33 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { AudioLines, Clock3, LoaderCircle, Plus, UploadCloud, Waves } from "lucide-react";
+import { AudioLines, Clock3, LoaderCircle, Plus, Trash2, UploadCloud, Waves } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type { Clip } from "../lib/domain";
 import { formatDuration } from "../lib/domain";
 import { ClipPlayer } from "./ClipPlayer";
 
-type Props = { clips: Clip[]; onCreated: (clip: Clip) => void };
+type Props = { clips: Clip[]; onCreated: (clip: Clip) => void; onRemoved: (id: string, archived?: Clip) => void };
 
-export function ClipLibrary({ clips, onCreated }: Props) {
+export function ClipLibrary({ clips, onCreated, onRemoved }: Props) {
   const [name, setName] = useState("");
   const [duration, setDuration] = useState("8");
   const [file, setFile] = useState<File>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [removingId, setRemovingId] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
+
+  const removeClip = async (clip: Clip) => {
+    setRemovingId(clip.id);
+    setError("");
+    try {
+      const result = await api.deleteClip(clip.id);
+      onRemoved(clip.id, result.archived ? result.clip : undefined);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not remove the clip.");
+    } finally { setRemovingId(undefined); }
+  };
 
   useEffect(() => {
     if (!file) return;
@@ -124,7 +136,7 @@ export function ClipLibrary({ clips, onCreated }: Props) {
         <div>
           <span className="eyebrow"><AudioLines size={14} /> Audio library</span>
           <h1>Approved voice clips</h1>
-          <p>Only ready clips can be attached to a published call flow.</p>
+          <p>Only ready clips can be attached to a published call flow. Removing a clip archives it if published history still uses its audio.</p>
         </div>
         <label className="library-upload">
           <UploadCloud size={18} />
@@ -144,10 +156,11 @@ export function ClipLibrary({ clips, onCreated }: Props) {
       <section className="clip-grid">
         {clips.map((clip) => (
           <article className={`clip-card clip-card--${clip.color}`} key={clip.id}>
-            <div className="clip-card__top"><span className="clip-wave"><Waves size={18} /></span><span className={`clip-status clip-status--${clip.status}`}>{clip.previewUrl && !clip.assetUrl ? "Sample" : clip.status}</span></div>
+            <div className="clip-card__top"><span className="clip-wave"><Waves size={18} /></span><span className={`clip-status clip-status--${clip.status}`}>{clip.status === "archived" ? "Archived" : clip.previewUrl && !clip.assetUrl ? "Sample" : clip.status}</span></div>
             <h2>{clip.name}</h2>
             <ClipPlayer clip={clip} />
             <footer><span><Clock3 size={13} /> {formatDuration(clip.durationSeconds)}</span><span>{clip.usedBy} flow{clip.usedBy === 1 ? "" : "s"}</span></footer>
+            {clip.status !== "archived" && <button className="clip-remove" aria-label={`Remove ${clip.name}`} onClick={() => removeClip(clip)} disabled={removingId !== undefined}>{removingId === clip.id ? <LoaderCircle size={13} className="spin" /> : <Trash2 size={13} />} Remove</button>}
           </article>
         ))}
       </section>

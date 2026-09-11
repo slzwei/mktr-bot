@@ -32,7 +32,11 @@ The five built-in clips include spoken sample previews, labeled **Sample**. Thes
 
 ## Flow editing
 
-Use the node palette or drag a node onto the canvas. Select a node to edit its label, clip, threshold, and note. Select a connection to set its label, intent, sentiment, confidence threshold, or fallback flag. A flow cannot be published until all nodes are reachable, every clip node points to a ready clip, and listening/classification nodes have fallback routes.
+New flows start with a minimal Start → End path. Use the node palette or drag a node onto the canvas. Select a node to edit its label, clip, threshold, retry attempt count, and note. Select a connection to set its label, intent, sentiment, confidence threshold, or fallback flag. A flow cannot be published until all nodes are reachable, every clip node points to a ready clip, and listening/classification nodes have fallback routes.
+
+The trash control beside the flow selector removes the current flow while retaining published versions and call history. Audio-library **Remove** controls delete unused clips and archive clips retained by published history. An empty workspace still allows navigation and creation of a new flow.
+
+**Event logs** shows the latest 200 recorded events for a selected call. **Settings** shows the active telephony mode, call limits, classifier mode and model as read-only values; its authenticated API response excludes credentials. **Help** opens the packaged first-call runbook through the same operator session.
 
 ## Checks
 
@@ -46,7 +50,7 @@ npm run test:e2e
 npm run test:e2e:restart # requires existing native PostgreSQL tools
 ```
 
-Browser checks cover canvas dragging, audio file drops and uploads, media seeking, and playback. They start separate local API and web servers and use `test-results/clips` for test uploads.
+Browser checks cover canvas dragging, audio file drops and uploads, media seeking, playback, draft deletion, clip deletion/archive, retry counters and the operator views. They start separate local API and web servers and use `test-results/clips` for test uploads.
 
 Node is pinned to `24.14.0` in `engines.node`, `.nvmrc`, the API image and CI. CI runs typecheck, unit coverage, worker/database/backup checks, Chromium e2e, compose validation, and both image builds. The API image uses the `node` user, starts Node directly, and probes `/api/health`. Its runtime contains compiled application files and generated Prisma client/migrations, excluding test sources and development dependencies. `MKTR_POSTGRES_PASSWORD` must be a randomly generated URI-safe password (for example hexadecimal); Compose has no shared default database password and Postgres refuses an empty one.
 

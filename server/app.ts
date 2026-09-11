@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Logger } from "pino";
 import { z } from "zod";
-import { CALLER_IDS, type TestCallInput } from "../src/lib/domain.js";
+import { CALLER_IDS, type OperatorSettings, type TestCallInput } from "../src/lib/domain.js";
 import { createAuth, requireAdmin, requireMediaGateway, type AuthStore } from "./auth.js";
 import { config } from "./config.js";
 import { CampaignDialer, campaignDetail, createCampaign } from "./campaigns.js";
@@ -119,6 +119,22 @@ export function createApp(dependencies: AppDependencies) {
   app.use("/media/clips", auth.requireOperator, express.static(config.clipStorageDir, { fallthrough: false, maxAge: "1h" }));
   app.get("/api/auth/session", (_request, response) => response.json({ user: response.locals.operator }));
   app.post("/api/auth/logout", (request, response, next) => { z.object({}).strict().parse(request.body ?? {}); next(); }, auth.logout);
+  app.get("/api/settings", (_request, response) => {
+    // Deliberately allowlist operator-visible values. Config also holds credentials.
+    const settings: OperatorSettings = {
+      telephony: {
+        mode: adapter.mode,
+        maxConcurrentCalls: config.maxConcurrentCalls,
+        originateTimeoutSeconds: config.originateTimeoutSeconds,
+        maxCallSeconds: config.maxCallSeconds
+      },
+      classifier: { mode: classifier.mode, model: classifier.mode === "openai" ? config.classifier.openaiModel : null }
+    };
+    response.json(settings);
+  });
+  app.get("/api/help/runbook", (_request, response) => {
+    response.type("text/plain").sendFile(path.resolve(process.cwd(), "docs/runbook-first-live-call.md"));
+  });
   app.put("/api/settings/telephony-mode", requireAdmin, (request, response) => {
     const body = z.object({ mode: z.enum(["simulated", "freeswitch"]) }).strict().parse(request.body);
     if (body.mode === adapter.mode) return response.json({ mode: adapter.mode });

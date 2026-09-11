@@ -17,6 +17,7 @@ import {
   Save,
   Settings,
   ShieldCheck,
+  Trash2,
   Upload
 } from "lucide-react";
 import { CallConsole } from "./components/CallConsole";
@@ -25,10 +26,11 @@ import { FlowCanvas } from "./components/FlowCanvas";
 import { TrunkPanel } from "./components/TrunkPanel";
 import { SessionGate } from "./components/SignIn";
 import { CampaignsPanel } from "./components/CampaignsPanel";
+import { EventLogsView, HelpView, SettingsView } from "./components/SystemViews";
 import { api, ApiError, type Operator } from "./lib/api";
 import type { BootstrapData, CallSession, Clip, FlowDefinition } from "./lib/domain";
 
-type View = "flows" | "clips" | "calls" | "trunk" | "campaigns";
+type View = "flows" | "clips" | "calls" | "trunk" | "campaigns" | "events" | "settings" | "help";
 
 const navigation: { id: View; label: string; icon: typeof GitBranch }[] = [
   { id: "flows", label: "Flows", icon: GitBranch },
@@ -137,15 +139,33 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
   };
 
   const createFlow = async () => {
+    setSaving(true);
     try {
       const flow = await api.createFlow(`Untitled flow ${(data?.flows.length ?? 0) + 1}`);
       setData((current) => current ? { ...current, flows: [...current.flows, flow] } : current);
       setActiveFlowId(flow.id);
       setWorkingFlow(flow);
+      setSelectedNodeId(undefined);
       setView("flows");
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not create a flow." });
-    }
+    } finally { setSaving(false); }
+  };
+
+  const deleteFlow = async () => {
+    if (!workingFlow) return;
+    setSaving(true);
+    try {
+      await api.deleteFlow(workingFlow.id);
+      const remaining = data?.flows.filter((flow) => flow.id !== workingFlow.id) ?? [];
+      setData((current) => current ? { ...current, flows: remaining } : current);
+      setActiveFlowId(remaining[0]?.id ?? "");
+      setWorkingFlow(remaining[0] ? structuredClone(remaining[0]) : undefined);
+      setSelectedNodeId(undefined);
+      setNotice({ kind: "success", text: "Flow removed. Published history is retained." });
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not delete the flow." });
+    } finally { setSaving(false); }
   };
 
   const onCallUpdate = useCallback((call: CallSession) => {
@@ -165,9 +185,14 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
     setNotice({ kind: "success", text: "Audio clip added." });
   };
 
+  const onClipRemoved = (id: string, archived?: Clip) => {
+    setData((current) => current ? { ...current, clips: archived ? current.clips.map((clip) => clip.id === id ? archived : clip) : current.clips.filter((clip) => clip.id !== id) } : current);
+    setNotice({ kind: "success", text: archived ? "Clip archived. Published history can still play its audio." : "Clip deleted." });
+  };
+
   const calls = useMemo(() => data?.calls ?? [], [data?.calls]);
 
-  if (!data || !workingFlow) {
+  if (!data) {
     return <main className="loading-screen"><span className="brand-mark"><Bot size={22} /></span><LoaderCircle className="spin" size={22} /><strong>Loading voice control</strong></main>;
   }
 
@@ -182,7 +207,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
         </div>
         <div className="topbar__status">
           <span className={`status-pill status-pill--${data.trunk.mode}`}><i /> {data.trunk.mode === "simulated" ? "Simulator" : "Singtel live"}</span>
-          <button className="icon-button" title="Help" aria-label="Help"><CircleHelp size={18} /></button>
+          <button className="icon-button" title="Help" aria-label="Help" onClick={() => { setView("help"); setSidebarOpen(false); }}><CircleHelp size={18} /></button>
           <button className="account-button" aria-label="Sign out" title={`Sign out ${operator.email}`} onClick={signOut}><span>{operator.email.slice(0, 2).toUpperCase()}</span><ChevronDown size={14} /></button>
         </div>
       </header>
@@ -195,8 +220,8 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
             return <button key={item.id} className={view === item.id ? "is-active" : ""} onClick={() => { setView(item.id); setSidebarOpen(false); }}><Icon size={17} /> {item.label}</button>;
           })}
           <span className="nav-label nav-label--lower">System</span>
-          <button><Activity size={17} /> Event logs</button>
-          <button><Settings size={17} /> Settings</button>
+          <button className={view === "events" ? "is-active" : ""} onClick={() => { setView("events"); setSidebarOpen(false); }}><Activity size={17} /> Event logs</button>
+          <button className={view === "settings" ? "is-active" : ""} onClick={() => { setView("settings"); setSidebarOpen(false); }}><Settings size={17} /> Settings</button>
         </nav>
         <div className="sidebar__trunk">
           <div><RadioTower size={16} /><span><strong>Singtel SIP</strong><small>{data.trunk.trunkUsername}</small></span></div>
@@ -207,20 +232,21 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
       </aside>
 
       <main className="main-view">
-        {view === "flows" && (
+        {view === "flows" && workingFlow && (
           <>
             <div className="workspace-toolbar">
               <div className="flow-switcher">
                 <span className="eyebrow">Call flow</span>
                 <div>
-                  <select value={activeFlowId} onChange={(event) => selectFlow(event.target.value)}>
+                  <select aria-label="Current flow" value={activeFlowId} onChange={(event) => selectFlow(event.target.value)}>
                     {data.flows.map((flow) => <option key={flow.id} value={flow.id}>{flow.name}</option>)}
                   </select>
                   <span className={`version-tag version-tag--${workingFlow.status}`}>{workingFlow.status === "published" ? `Published v${workingFlow.version}` : "Draft"}</span>
+                  <button className="icon-button icon-button--danger" onClick={deleteFlow} disabled={saving} aria-label="Delete flow" title="Delete flow; retain published history"><Trash2 size={15} /></button>
                 </div>
               </div>
               <div className="toolbar-actions">
-                <button className="secondary-button" onClick={createFlow}><Plus size={15} /> New flow</button>
+                <button className="secondary-button" onClick={createFlow} disabled={saving}><Plus size={15} /> New flow</button>
                 <button className="secondary-button" onClick={save} disabled={saving}>{saving ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} Save</button>
                 <button className="secondary-button" onClick={publish} disabled={saving}><Upload size={15} /> Publish</button>
                 <button className="primary-button" onClick={() => setCallOpen(true)}><Play size={15} fill="currentColor" /> Test call</button>
@@ -230,9 +256,14 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
           </>
         )}
 
-        {view === "clips" && <ClipLibrary clips={data.clips} onCreated={onClipCreated} />}
+        {view === "flows" && !workingFlow && <div className="empty-history empty-flows"><GitBranch size={28} /><strong>No flows yet</strong><span>Create a flow to start with a simple Start → End path.</span><button className="primary-button" onClick={createFlow} disabled={saving}><Plus size={15} /> New flow</button></div>}
+
+        {view === "clips" && <ClipLibrary clips={data.clips} onCreated={onClipCreated} onRemoved={onClipRemoved} />}
         {view === "trunk" && <TrunkPanel trunk={data.trunk} />}
         {view === "campaigns" && <CampaignsPanel flows={data.flows} canManageWebhooks={operator.role === "admin"} />}
+        {view === "events" && <EventLogsView calls={calls} />}
+        {view === "settings" && <SettingsView />}
+        {view === "help" && <HelpView />}
         {view === "calls" && (
           <div className="history-view">
             <section className="library-header"><div><span className="eyebrow"><FileClock size={14} /> Call history</span><h1>Test call sessions</h1><p>Review call outcomes, selected branches, and measured decision latency.</p></div><button className="primary-button" onClick={() => setCallOpen(true)}><PhoneCall size={16} /> New test call</button></section>

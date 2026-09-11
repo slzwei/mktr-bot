@@ -380,6 +380,16 @@ export function FlowCanvas({ flow, clips, selectedNodeId, onSelectedNodeChange, 
                 </div>
               </label>
             )}
+            {selectedNode.type === "retry" && (
+              <label className="field-label">
+                Maximum attempts
+                <input type="number" min="1" max="10" step="1" value={selectedNode.data.maxAttempts ?? 1} onChange={(event) => {
+                  const maxAttempts = Number(event.target.value);
+                  if (Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= 10) updateSelected({ maxAttempts });
+                }} />
+                <small>The call ends after this many retries unless an exhaustion route is connected.</small>
+              </label>
+            )}
             {selectedClip && <ClipPlayer key={selectedClip.id} clip={selectedClip} />}
             <label className="field-label">
               Note

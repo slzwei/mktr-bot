@@ -7,6 +7,7 @@ import type {
   OutcomeDeliverySummary,
   Clip,
   FlowDefinition,
+  OperatorSettings,
   TestCallInput
 } from "./domain";
 
@@ -78,6 +79,7 @@ export const api = {
   recordVoiceOptOut: (input: { phone: string; source: string }) => request<VoiceConsent>("/api/compliance/opt-out", { method: "POST", body: JSON.stringify(input) }),
   setOutcomeWebhook: (id: string, url: string | null) => request<CampaignDetail>(`/api/campaigns/${id}/outcome-webhook`, { method: "PUT", body: JSON.stringify({ url }) }),
   outcomeDeliveries: (id: string) => request<{ configured: boolean; deliveries: OutcomeDeliverySummary[] }>(`/api/campaigns/${id}/outcome-deliveries`),
+  settings: () => request<OperatorSettings>("/api/settings"),
   createFlow: (name: string) => request<FlowDefinition>("/api/flows", { method: "POST", body: JSON.stringify({ name }) }),
   saveFlow: (flow: FlowDefinition) => request<FlowDefinition>(`/api/flows/${flow.id}`, { method: "PUT", body: JSON.stringify(flow) }),
   publishFlow: (flowId: string) => request<{ flow: FlowDefinition; validation: { valid: boolean; errors: string[] } }>(`/api/flows/${flowId}/publish`, { method: "POST" }),

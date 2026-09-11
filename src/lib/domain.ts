@@ -194,6 +194,16 @@ export type BootstrapData = {
   trunk: TrunkStatus;
 };
 
+export type OperatorSettings = {
+  telephony: {
+    mode: TelephonyMode;
+    maxConcurrentCalls: number;
+    originateTimeoutSeconds: number;
+    maxCallSeconds: number;
+  };
+  classifier: { mode: ClassifierMode; model: string | null };
+};
+
 export type TestCallInput = {
   destination: string;
   callerId: CallerId;

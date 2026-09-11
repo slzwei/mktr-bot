@@ -321,8 +321,14 @@ export class InMemoryStore implements Store {
     return clone(saved);
   }
   createDraft(name: string): FlowDefinition {
-    const source = this.getFlow(initialFlow.id) ?? clone(initialFlow);
-    return this.saveFlow({ ...source, id: randomUUID(), name, version: 0, status: "draft", updatedAt: now() });
+    return this.saveFlow({
+      id: randomUUID(), name, version: 0, status: "draft", updatedAt: now(), startNodeId: "start",
+      nodes: [
+        { id: "start", type: "start", position: { x: 80, y: 160 }, data: { label: "Start call", description: "Call answered" } },
+        { id: "end", type: "end", position: { x: 420, y: 160 }, data: { label: "End call" } }
+      ],
+      edges: [{ id: "start-end", source: "start", target: "end" }]
+    });
   }
   deleteFlow(id: string): FlowDefinition | undefined {
     this.assertWritable();

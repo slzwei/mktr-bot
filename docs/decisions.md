@@ -85,3 +85,8 @@ Channel inventory and variable inspection use the [FreeSWITCH API command interf
 - C3: Keep recordings opt-in, store only generated filenames in a dedicated shared volume, and purge on boot/hourly with a 30-day default because call audio needs an explicit retention lifecycle separate from the reusable clip library.
 - C3: Preserve a requested terminal reason when a provider hangup races the kill reply because normal channel clearing must not erase voicemail, flow-failure or operator-stop outcomes.
 - C3: Persist termination intent and retain it through unconfirmed hangup/reconnect, and reject stale active snapshots after terminal completion, because async media shutdown or delayed ESL replies must neither resurrect a call nor erase its outcome. Provider hangup is still attempted if recording that intent fails.
+
+- C4: Start new drafts with a two-node Start → End graph because a blank workflow should not silently inherit the demo's clips or routing decisions.
+- C4: Reuse the durable call event history for the latest 200 operator log entries because it ties timestamps and outcomes to one call without exposing unrelated server or credential logs.
+- C4: Allowlist read-only telephony limits and classifier settings, and serve the fixed runbook path behind the existing session, because operators need current deployment guidance without disclosure of provider credentials or an in-browser live-mode switch.
+- C4: Reuse flow soft deletion and published-reference clip archival for the UI controls because immutable history and its audio must survive routine editor cleanup.

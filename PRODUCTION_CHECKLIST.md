@@ -142,8 +142,8 @@ Done when: Answering-machine detection on answer produces a `voicemail` outcome.
 Verify: Unit tests cover cause mapping. An e2e export produces one CSV row per call.
 
 ### C4. Editor completeness
-Status: todo
-Evidence: 2026-09-11 browser probes: clicking Event logs, Settings, or Help leaves the flow editor visible; retry inspector offers only Name, Audio clip, and Note. New-flow HTTP response contains 12 cloned demo nodes and delete endpoints return 404. `src/App.tsx:156,169,170` has no navigation handlers and `server/store.ts:209` clones the demo; the required deletion/counter/navigation e2e tests are absent from the passing 10-test browser suite.
+Status: done
+Evidence: Merged build, 93 unit tests and 24 Chromium tests pass. `tests/editor.spec.ts` verifies minimal Start→End drafts, publish/delete with immutable history, retry-counter persistence, clip deletion/archive, Event logs, read-only Settings, authenticated runbook Help and empty-workspace navigation. C1 campaigns, C2 permission controls, C3 exports and B5 operational polling remain integrated; settings expose only an allowlist of nonsecret configuration and the runtime image includes the fixed runbook.
 Why: Clips and flows cannot be deleted, the retry node has no counter, and three navigation buttons do nothing.
 Done when: The UI can delete or archive clips and flows. The retry node exposes `maxAttempts`. The Event logs view shows recent log lines for a call. Settings shows telephony and classifier config read-only. Help links to the runbook. New flows start from a minimal start-to-end template rather than a clone of the demo flow.
 Verify: e2e tests cover delete flow, the retry counter in the inspector, and the three navigation views rendering.
