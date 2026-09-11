@@ -137,6 +137,26 @@ test("partial, duplicate, extra, wrong-number and ambiguous S000 replies write z
   }
 });
 
+test("an S000 whose optional PDPC metadata is absent still records the paid verdict and authorizes the dial", async (t) => {
+  // validUntil is parsed out of PDPC's human-readable msg, so a wording change nulls it.
+  // Discarding the batch would throw away up to 100 numbers the Registry just billed for.
+  const f = await fixture(t);
+  const [phone] = phones(1);
+  f.gateway.respond = (body, response) => {
+    const reply = successfulDncReply(body.numbers);
+    reply.data.createdTime = null; reply.data.validUntil = null;
+    response.end(JSON.stringify(reply));
+  };
+  const result = await f.checker.scrubPhones([phone], 1);
+  assert.equal(result.checked, 1); assert.equal(result.cleared, 1); assert.equal(result.failure, undefined);
+
+  const record = f.store.getDncClearance(phone) as RegistryClearance;
+  assert.deepEqual(record.evidence, { statusCode: "S000", createdTime: null, validUntil: null, noVoiceCall: false, noTextMessage: false, noFax: false });
+  assert.equal(record.reference, "fixture-transaction-001");
+  // The absent metadata is evidence, not permission: the 21-day gate still passes.
+  assert.equal(new ConsentPolicy(f.store).authorize(phone).basis, "dnc");
+});
+
 test("a later failed batch keeps only earlier complete S000 evidence and reports the unchecked remainder", async (t) => {
   const f = await fixture(t);
   f.gateway.respond = (body, response) => response.end(JSON.stringify(f.gateway.requests.length === 1 ? successfulDncReply(body.numbers) : { success: false, statusCode: "S301" }));

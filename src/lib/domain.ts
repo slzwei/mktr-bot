@@ -217,8 +217,10 @@ export type TestCallInput = {
 
 export type DncRegistryEvidence = {
   statusCode: "S000";
-  createdTime: string;
-  validUntil: string;
+  // PDPC's own metadata, null when the Registry omits it. Evidence only — no gate reads
+  // these; the binding expiry is the clearance's own checkedAt + 21 days.
+  createdTime: string | null;
+  validUntil: string | null;
   noVoiceCall: boolean;
   noTextMessage: boolean;
   noFax: boolean;

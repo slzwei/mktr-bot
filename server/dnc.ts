@@ -44,9 +44,18 @@ const resultSchema = z.object({
   success: z.literal(true),
   data: z.object({
     statusCode: z.literal("S000"),
+    // The transaction id stays REQUIRED: it becomes the clearance `reference`, and
+    // ConsentPolicy refuses to dial on a clearance whose reference is blank, so a
+    // verdict we cannot evidence is not permission and must not be stored.
     transactionId: z.string().trim().min(1).max(500),
-    createdTime: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/),
-    validUntil: z.string().datetime({ offset: true }),
+    // createdTime and validUntil are PDPC's own evidence, kept in the append-only
+    // snapshot and read by no gate — the binding expiry is checkedAt + 21 days. The
+    // gateway returns them as null when PDPC omits them (validUntil is parsed out of a
+    // human-readable message, so any wording change nulls it). Rejecting a whole S000
+    // batch over a missing cosmetic field would discard up to 100 numbers we just paid
+    // for. Null is accepted; MALFORMED is still rejected.
+    createdTime: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/).nullable(),
+    validUntil: z.string().datetime({ offset: true }).nullable(),
     results: z.array(z.object({
       number: z.string().regex(/^\d{8}$/),
       noVoiceCall: z.boolean(), noTextMessage: z.boolean(), noFax: z.boolean()
@@ -70,6 +79,13 @@ const reasons: Record<string, string> = {
   dnc_unavailable: "Registry checking is unavailable or not configured on the gateway.",
   budget_exceeded: "The gateway's batch checking budget has been exceeded."
 };
+// Must exceed the gateway's worst case or we abandon a request PDPC still bills for.
+// mktr-platform serialises every Registry call through a `dnc_call` advisory lock taken
+// with `SET LOCAL lock_timeout = '30s'`, then allows DNC_TIMEOUT_MS (5s) for PDPC itself
+// — roughly 35s if our batch queues behind a capture-time check or the backfill sweep.
+// At the old 10s we gave up while the gateway went on to spend the credits.
+const GATEWAY_TIMEOUT_MS = 40_000;
+
 class CheckFailure extends Error {
   constructor(readonly details: NonNullable<DncCheckResult["failure"]>) { super(details.message); }
 }
@@ -145,7 +161,7 @@ export class DncChecker {
         result.submitted += numbers.length;
         const response = await fetch(gateway, {
           method: "POST", headers: { "Content-Type": "application/json", "X-Webhook-Signature": `sha256=${signature}` },
-          body: raw, redirect: "manual", signal: AbortSignal.timeout(this.options.timeoutMs ?? 10_000)
+          body: raw, redirect: "manual", signal: AbortSignal.timeout(this.options.timeoutMs ?? GATEWAY_TIMEOUT_MS)
         });
         const body = await readReply(response);
         const receivedAt = this.now().toISOString();

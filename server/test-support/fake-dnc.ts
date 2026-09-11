@@ -4,7 +4,17 @@ import type { AddressInfo } from "node:net";
 import { dncConfig } from "../dnc.js";
 
 export type BatchRequest = { timestamp: string; caller: string; numbers: string[] };
-export const successfulDncReply = (numbers: string[]) => ({
+/** Mirrors the gateway contract: createdTime and validUntil are nullable there, so the
+ *  fake must be able to express a reply that omits them. */
+export type BatchReply = {
+  success: boolean;
+  data: {
+    statusCode: string; transactionId: string;
+    createdTime: string | null; validUntil: string | null;
+    results: { number: string; noVoiceCall: boolean; noTextMessage: boolean; noFax: boolean }[];
+  };
+};
+export const successfulDncReply = (numbers: string[]): BatchReply => ({
   success: true,
   data: {
     statusCode: "S000", transactionId: "fixture-transaction-001", createdTime: "2026-09-11 16:00:02",

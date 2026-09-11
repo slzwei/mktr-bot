@@ -100,8 +100,16 @@ trusted for authorisation (the secret is the only thing that grants access).
 ```
 
 Verdicts come back in the **requested order**, with one entry per requested number, in the
-normalised 8-digit form. `validUntil` is `null` when PDPC's `msg` carries no date — the
-caller's own `checkedAt + 21 days` is the binding expiry either way (§4).
+normalised 8-digit form.
+
+`transactionId` is always a non-empty string on a 200 — it becomes the clearance
+`reference`, and `ConsentPolicy` refuses to dial on a clearance whose reference is blank,
+so a verdict that cannot be evidenced is not permission. `createdTime` and `validUntil`
+are **nullable**: they are PDPC's own metadata, read by no gate, and `validUntil` is
+parsed out of a human-readable `msg` ("…valid until 06-Nov-2020"), so any wording change
+on PDPC's side nulls it. A client must accept null for those two — rejecting the batch
+would discard up to 100 verdicts the Registry has already billed for. The binding expiry
+is the caller's own `checkedAt + 21 days` either way (§4).
 
 **Every error** uses one envelope; `statusCode`/`reason` appear only when PDPC answered:
 
@@ -149,6 +157,13 @@ applied further:
   request is a duplicate — it would bill twice for one number.
 
 Nothing is billed for a 400/401/413: validation and auth both run before the Registry call.
+
+**Allow at least 40 seconds for a reply.** mktr-platform serialises every Registry call
+through one `dnc_call` Postgres advisory lock taken with `SET LOCAL lock_timeout = '30s'`,
+then allows `DNC_TIMEOUT_MS` (5s) for PDPC itself — so a batch that queues behind a
+capture-time check or the 30-minute backfill sweep can take ~35s to answer. A client
+timeout below that abandons a request PDPC still bills for: the credits are spent, the
+gateway returns 200 to nobody, and no evidence is written. Fail-closed, but paid for.
 
 **Budget isolation.** `checkNumbers` decrements one in-process hourly budget shared by every
 caller (`DNC_HOURLY_BUDGET`, default 1,000). A single 1,000-contact import would consume the
