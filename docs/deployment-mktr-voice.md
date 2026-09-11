@@ -58,3 +58,7 @@ All three passed every fake-based test and only appeared against real FreeSWITCH
 11 Sep 2026, call `4ff551b6-049b-4074-9bc9-79c5f6bcbbe1`, destination the operator's own mobile, caller ID +6562773211, flow Prospect qualification v4. Ringing 08:01:36 UTC, answered 08:01:42, greeting played, transcript "Yes." 1.8 s after speech ended, classified interested at 88 percent by rules, Interested clip played, Flow completed 08:02:00. No channel left on FreeSWITCH, capacity back to 0 of 1. A second call (`37e5c122`) repeated the same path.
 
 Known tuning point: Deepgram endpointing is 750 ms, so a pause mid-sentence ends the utterance. Raise `endpointing` in `media-worker/deepgram.ts` if callers get cut off.
+
+## Measuring turn latency
+
+`mktr_turn_duration_seconds` on the API's local `/metrics` path, and the `Turn completed` log line per call, measure the end of the callee's speech to the start of the reply clip. To collect a replay corpus, set `MKTR_PCM_CAPTURE_ENABLED=true` in the env file, recreate `media-worker`, make the test calls, then copy the `pcm-capture-data` volume out with `docker compose cp media-worker:/app/storage/pcm-capture ./pcm-capture` and turn the flag off again. Replay a window with `DEEPGRAM_API_KEY=... npx tsx scripts/replay-stt.ts pcm-capture/<callId>/<windowId>.pcm --runs 5`. The capture holds callee speech; delete it once measured.

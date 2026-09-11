@@ -95,3 +95,19 @@ for (const response of ["disconnect", "reject", "hang"]) test(`Deepgram ${respon
   await assert.rejects(new DeepgramSpeechToText({ apiKey: "fake-provider-key", endpoint: fake.endpoint, connectTimeoutMs: 30 }).open({ onUtterance() {}, onError: (error) => errors.push(error) }), /Deepgram|connect/);
   assert.ok(performance.now() - started < 1000); assert.equal(errors.length, 0);
 });
+
+test("Deepgram options reach the wire and invalid values are rejected before any connection", async (t) => {
+  const stalled = await stalledUpgrade(t);
+  const seen: URLSearchParams[] = [];
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }); await once(server, "listening");
+  t.after(async () => { for (const socket of server.clients) socket.terminate(); await new Promise<void>((resolve) => server.close(() => resolve())); });
+  server.on("connection", (_socket, request) => seen.push(new URL(request.url!, "http://fixture.test").searchParams));
+  const endpoint = `ws://127.0.0.1:${(server.address() as { port: number }).port}/v1/listen`;
+  const stream = await new DeepgramSpeechToText({ apiKey: "fake-provider-key", endpoint, model: "nova-2", endpointingMs: 10, utteranceEndMs: 1500, language: "en-GB" }).open({ onUtterance() {}, onError: (error) => assert.fail(error.message) });
+  t.after(() => stream.close());
+  assert.equal(seen[0].get("model"), "nova-2"); assert.equal(seen[0].get("endpointing"), "10"); assert.equal(seen[0].get("utterance_end_ms"), "1500"); assert.equal(seen[0].get("language"), "en-GB");
+  for (const options of [{ endpointingMs: -1 }, { endpointingMs: 1.5 }, { utteranceEndMs: 999 }, { model: "../x" }]) {
+    await assert.rejects(new DeepgramSpeechToText({ apiKey: "fake-provider-key", endpoint: stalled.endpoint, ...options }).open({ onUtterance() {}, onError() {} }), /Deepgram (endpointing|utterance end|model)/);
+  }
+  assert.equal(stalled.upgrades(), 0);
+});

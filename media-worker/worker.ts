@@ -3,6 +3,7 @@ import type { Duplex } from "node:stream";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { z } from "zod";
+import type { CaptureWindow, PcmCapture } from "./pcm-capture.js";
 import type { SpeechStream, SpeechToText, Utterance } from "./speech-to-text.js";
 
 const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}";
@@ -18,6 +19,8 @@ export type WorkerOptions = {
   apiTimeoutMs?: number;
   connectTimeoutMs?: number;
   maxWindowMs?: number;
+  /** Optional diagnostic tee of every accepted PCM frame; see pcm-capture.ts. */
+  capture?: PcmCapture;
   onError?: (error: Error, context: { callId: string; windowId: string }) => void;
 };
 
@@ -42,7 +45,7 @@ export function createMediaWorker(options: WorkerOptions) {
   const server = http.createServer((request, response) => {
     if (request.url !== "/health") { response.writeHead(404).end(); return; }
     response.writeHead(stopping ? 503 : 200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ ok: !stopping, enabled: options.enabled !== false, provider: options.stt.provider, windows: activeWindows.size, pendingReceipts: sessions.size - activeWindows.size }));
+    response.end(JSON.stringify({ ok: !stopping, enabled: options.enabled !== false, provider: options.stt.provider, pcmCapture: Boolean(options.capture), windows: activeWindows.size, pendingReceipts: sessions.size - activeWindows.size }));
   });
   const authorized = (header?: string) => options.token.length >= 16 && timingSafeEqual(
     createHash("sha256").update(header ?? "").digest(), createHash("sha256").update(`Bearer ${options.token}`).digest());
@@ -120,6 +123,9 @@ export function createMediaWorker(options: WorkerOptions) {
     let totalBytes = 0;
     let connectionDeadline: NodeJS.Timeout | undefined;
     let windowDeadline: NodeJS.Timeout | undefined;
+    let capture: CaptureWindow | undefined;
+    try { capture = options.capture?.open(callId, windowId, performance.now()); }
+    catch (error) { report(error, callId, windowId); }
     const closeProvider = (provider: SpeechStream) => {
       try { provider.close(); } catch (error) { report(error, callId, windowId); }
     };
@@ -142,6 +148,7 @@ export function createMediaWorker(options: WorkerOptions) {
       clearTimeout(windowDeadline);
       if (sessions.get(windowId) === finish) sessions.delete(windowId);
       stopInput();
+      capture?.close();
     };
     sessions.set(windowId, finish);
     const fail = (error: unknown) => {
@@ -158,6 +165,7 @@ export function createMediaWorker(options: WorkerOptions) {
       const parsed = utteranceSchema.safeParse(value);
       if (!parsed.success) { fail(new Error("Speech provider returned an invalid utterance.")); return; }
       phase = "submitting";
+      capture?.utterance(parsed.data, performance.now());
       clearTimeout(windowDeadline);
       stopInput();
       const body = { transcript: parsed.data.transcript, windowId, utteranceId: randomUUID(), sttLatencyMs: parsed.data.latencyMs };
@@ -190,6 +198,8 @@ export function createMediaWorker(options: WorkerOptions) {
       totalBytes += pcm.length;
       if (totalBytes > 960_000) { fail(new Error("Listen window exceeded sixty seconds of PCM audio.")); return; }
       const receivedAt = performance.now();
+      // Tee at arrival so the capture matches the provider input even for frames buffered while it opens.
+      capture?.frame(pcm, receivedAt);
       if (stream) write(pcm, receivedAt);
       else {
         bufferedBytes += pcm.length;

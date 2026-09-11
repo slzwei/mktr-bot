@@ -36,6 +36,8 @@ type PlaybackDelay = (clip: Clip, mode: TelephonyAdapter["mode"]) => number;
 export type TranscriptReceipt = { windowId: string; utteranceId: string; sttLatencyMs?: number };
 export class ListenWindowClosedError extends Error { readonly status = 409; }
 
+const sttProvider = () => process.env.MKTR_STT_PROVIDER || "deepgram";
+
 const defaultPlaybackDelay: PlaybackDelay = (clip, mode) => {
   if (mode === "simulated") {
     return Math.max(350, Math.min(1_200, clip.durationSeconds * 90));
@@ -60,6 +62,8 @@ export class CallOrchestrator {
   private readonly terminations = new Map<string, Promise<CallSession>>();
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly listenTimers = new Map<string, NodeJS.Timeout>();
+  // A turn opens when an accepted transcript receipt carries speech-end timing and closes when the reply clip command completes.
+  private readonly turns = new Map<string, { speechEndedAt: number; provider: string }>();
   private readonly unsubscribeAdapter?: () => void;
   private readonly unsubscribeConnection?: () => void;
   private stopping = false;
@@ -288,7 +292,9 @@ export class CallOrchestrator {
   }
 
   submitTranscript(id: string, transcript: string, receipt?: TranscriptReceipt): Promise<CallSession> {
-    return this.enqueue(id, () => this.classifyTranscript(id, transcript, receipt));
+    // Anchor on arrival, before queueing behind other work for this call, so queue wait counts toward the turn.
+    const receivedAt = performance.now();
+    return this.enqueue(id, () => this.classifyTranscript(id, transcript, receipt, receivedAt));
   }
 
   async mediaError(id: string, windowId: string): Promise<CallSession> {
@@ -298,7 +304,7 @@ export class CallOrchestrator {
     return this.finish(session, "failed", "Speech transcription unavailable.");
   }
 
-  private async classifyTranscript(id: string, transcript: string, receipt?: TranscriptReceipt): Promise<CallSession> {
+  private async classifyTranscript(id: string, transcript: string, receipt: TranscriptReceipt | undefined, receivedAt: number): Promise<CallSession> {
     const session = this.store.getCall(id);
     if (!session) throw new Error("Call not found.");
     if (receipt && session.lastUtteranceId === receipt.utteranceId && session.lastListenWindowId === receipt.windowId) return session;
@@ -320,7 +326,12 @@ export class CallOrchestrator {
       this.record(session, "transcript_final", "Transcript final", transcript, listeningNode.id, receipt?.sttLatencyMs);
       session.lastListenWindowId = session.listenWindowId;
       this.clearListenTimer(session.id);
-      if (receipt?.sttLatencyMs !== undefined) voiceMetrics.observeSttLatency(receipt.sttLatencyMs, process.env.MKTR_STT_PROVIDER || "deepgram");
+      // The worker's estimate runs from the final word's audio time to utterance completion, so the
+      // speech-end anchor is receipt arrival minus that estimate. Unknown timing produces no turn sample.
+      if (receipt?.sttLatencyMs !== undefined) {
+        voiceMetrics.observeSttLatency(receipt.sttLatencyMs, sttProvider());
+        this.turns.set(session.id, { speechEndedAt: receivedAt - receipt.sttLatencyMs, provider: sttProvider() });
+      } else this.turns.delete(session.id);
       session.lastUtteranceId = receipt?.utteranceId;
       session.listenWindowId = undefined;
       session.status = "classifying";
@@ -460,6 +471,7 @@ export class CallOrchestrator {
   }
 
   private async enterListening(session: CallSession, node: FlowNode) {
+    this.turns.delete(session.id);
     session.listenWindowId = randomUUID();
     await this.transition(
       session,
@@ -500,6 +512,13 @@ export class CallOrchestrator {
     if (!clip || !["ready", "archived"].includes(clip.status)) throw new Error(node.data.label + " needs a ready audio clip.");
     await this.transition(session, "playing", "clip_playing", "Playing " + node.data.label, "Pre-recorded clip", node.id);
     await this.adapter.playClip(session.providerCallId, clip, playbackId);
+    const turn = this.turns.get(session.id);
+    if (turn) {
+      this.turns.delete(session.id);
+      const turnMs = Math.round(performance.now() - turn.speechEndedAt);
+      voiceMetrics.observeTurnLatency(turnMs, turn.provider);
+      logger.info({ callId: session.id, nodeId: node.id, turnMs, provider: turn.provider }, "Turn completed: speech end to reply playback");
+    }
     return clip;
   }
 
@@ -770,6 +789,7 @@ export class CallOrchestrator {
 
   private cleanupRuntimeState(callId: string) {
     this.terminationReasons.delete(callId);
+    this.turns.delete(callId);
     this.playbacks.delete(callId);
     this.flowSnapshots.delete(callId);
     this.simulationReplies.delete(callId);

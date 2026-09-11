@@ -17,18 +17,40 @@ const resultSchema = z.object({
   channel: z.union([alternativesSchema, z.array(z.number().int().nonnegative()).max(8)]).optional()
 });
 
+export type DeepgramOptions = {
+  apiKey: string;
+  language?: string;
+  endpoint?: string;
+  connectTimeoutMs?: number;
+  now?: () => number;
+  /** Deepgram model name; production uses nova-3. */
+  model?: string;
+  /** Silence after speech before Deepgram finalizes the utterance; production uses 750 ms. */
+  endpointingMs?: number;
+  /** Gap without new words before an UtteranceEnd marker; Deepgram requires at least 1000 ms. */
+  utteranceEndMs?: number;
+};
+
+export const deepgramDefaults = { model: "nova-3", endpointingMs: 750, utteranceEndMs: 1000 } as const;
+
 export class DeepgramSpeechToText implements SpeechToText {
   readonly provider = "deepgram";
-  constructor(private readonly options: { apiKey: string; language?: string; endpoint?: string; connectTimeoutMs?: number; now?: () => number }) {}
+  constructor(private readonly options: DeepgramOptions) {}
 
   async open(callbacks: SpeechCallbacks, signal?: AbortSignal): Promise<SpeechStream> {
     if (!this.options.apiKey) throw new Error("DEEPGRAM_API_KEY is required for streaming transcription.");
+    const model = this.options.model ?? deepgramDefaults.model;
+    const endpointingMs = this.options.endpointingMs ?? deepgramDefaults.endpointingMs;
+    const utteranceEndMs = this.options.utteranceEndMs ?? deepgramDefaults.utteranceEndMs;
+    if (!/^[a-z0-9][a-z0-9.-]*$/i.test(model)) throw new Error("Deepgram model must be a plain model name.");
+    if (!Number.isSafeInteger(endpointingMs) || endpointingMs < 0 || endpointingMs > 60_000) throw new Error("Deepgram endpointing must be an integer from 0 to 60000 milliseconds.");
+    if (!Number.isSafeInteger(utteranceEndMs) || utteranceEndMs < 1000 || utteranceEndMs > 60_000) throw new Error("Deepgram utterance end must be an integer from 1000 to 60000 milliseconds.");
     signal?.throwIfAborted();
     const endpoint = new URL(this.options.endpoint ?? "wss://api.deepgram.com/v1/listen");
     // Deepgram does not list en-SG as a supported wire code; en is its English model.
     const locale = this.options.language ?? "en-SG";
-    endpoint.search = new URLSearchParams({ model: "nova-3", language: locale === "en-SG" ? "en" : locale,
-      encoding: "linear16", sample_rate: "8000", channels: "1", interim_results: "true", endpointing: "750", utterance_end_ms: "1000", smart_format: "true" }).toString();
+    endpoint.search = new URLSearchParams({ model, language: locale === "en-SG" ? "en" : locale,
+      encoding: "linear16", sample_rate: "8000", channels: "1", interim_results: "true", endpointing: String(endpointingMs), utterance_end_ms: String(utteranceEndMs), smart_format: "true" }).toString();
     const socket = new WebSocket(endpoint, { headers: { Authorization: `Token ${this.options.apiKey}` }, handshakeTimeout: this.options.connectTimeoutMs ?? 3000, maxPayload: 1024 * 1024, perMessageDeflate: false });
     const now = this.options.now ?? (() => performance.now());
     let closed = false;

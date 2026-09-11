@@ -130,12 +130,18 @@ test("metrics expose current trunk occupancy, one terminal outcome and bounded l
     metrics.observeCall(ended);
     metrics.observeClassifierLatency(125, "rules");
     metrics.observeSttLatency(250, "deepgram");
+    metrics.observeTurnLatency(1250, "deepgram");
+    metrics.observeTurnLatency(900, "unregistered-provider");
     const result = await request(app).get("/metrics").expect(200);
     assert.match(result.headers["content-type"], /text\/plain/);
     assert.match(result.text, /mktr_active_calls 0/);
     assert.match(result.text, /mktr_calls_total\{outcome="completed"\} 1/);
     assert.match(result.text, /mktr_classifier_duration_seconds_count\{provider="rules"\} 1/);
     assert.match(result.text, /mktr_stt_duration_seconds_sum\{provider="deepgram"\} 0\.25/);
+    assert.match(result.text, /mktr_turn_duration_seconds_count\{provider="deepgram"\} 1/);
+    assert.match(result.text, /mktr_turn_duration_seconds_bucket\{le="1"(?:,[^}]*)?,provider="deepgram"\} 0/);
+    assert.match(result.text, /mktr_turn_duration_seconds_bucket\{le="1\.25"(?:,[^}]*)?,provider="deepgram"\} 1/);
+    assert.match(result.text, /mktr_turn_duration_seconds_count\{provider="unknown"\} 1/);
     assert.doesNotMatch(result.text, /91234567|flow-metrics/);
     assert.equal(entries.filter((entry) => entry.msg === "Call state changed" && entry.status === "ended").length, 1);
     assert.ok(entries.some((entry) => entry.callId === call.id && typeof entry.requestId === "string"));

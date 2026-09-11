@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
+import type { Histogram } from "prom-client";
 import type { ClassifierResult, FlowDefinition, TestCallInput } from "../src/lib/domain.js";
+import { voiceMetrics } from "./metrics.js";
 import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
 import { InMemoryStore } from "./store.js";
-import { SimulatedTelephonyAdapter, type TelephonyEvent } from "./telephony.js";
+import { SimulatedTelephonyAdapter, type TelephonyAdapter, type TelephonyEvent } from "./telephony.js";
 
 const validInput: TestCallInput = {
   destination: "+6591234567",
@@ -190,4 +193,67 @@ test("a flow with no route terminates its provider channel", async () => {
   assert.equal(hangups, 1);
   assert.equal(orchestrator.get(call.id)?.status, "failed");
   assert.equal(orchestrator.activeCallCount(), 0);
+});
+
+async function turnSamples(provider = "deepgram") {
+  const histogram = voiceMetrics.registry.getSingleMetric("mktr_turn_duration_seconds") as Histogram<"provider">;
+  const { values } = await histogram.get();
+  const read = (suffix: string) => values.find((value) => value.metricName === `mktr_turn_duration_seconds_${suffix}` && value.labels.provider === provider)?.value ?? 0;
+  return { count: read("count"), seconds: read("sum") };
+}
+
+test("a turn runs from the receipt's speech-end anchor to the reply clip command completing, and is sampled only then", async () => {
+  const store = new InMemoryStore();
+  const flow: FlowDefinition = {
+    id: "flow-turn", name: "Turn timing", version: 1, status: "published", startNodeId: "start", updatedAt: new Date().toISOString(),
+    nodes: [
+      { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "Start" } },
+      { id: "listen", type: "listen", position: { x: 1, y: 0 }, data: { label: "Reply" } },
+      { id: "classify", type: "classify", position: { x: 2, y: 0 }, data: { label: "Decision", threshold: 0.5 } },
+      { id: "reply", type: "playClip", position: { x: 3, y: 0 }, data: { label: "Interest follow-up", clipId: "clip-interest" } },
+      { id: "end", type: "end", position: { x: 4, y: 0 }, data: { label: "End" } }
+    ],
+    edges: [
+      { id: "start-listen", source: "start", target: "listen" },
+      { id: "listen-classify", source: "listen", target: "classify", condition: { fallback: true } },
+      { id: "interested", source: "classify", target: "reply", label: "Interested", condition: { intent: "interested" } },
+      { id: "otherwise", source: "classify", target: "end", condition: { fallback: true } },
+      { id: "reply-end", source: "reply", target: "end" }
+    ]
+  };
+  store.saveFlow(flow);
+  let emit: ((event: TelephonyEvent) => void) | undefined;
+  const clipCommandMs = 40;
+  const adapter: TelephonyAdapter = {
+    mode: "freeswitch", configured: true,
+    async originate(_input, uuid) { return { providerCallId: uuid! }; },
+    onEvent(listener) { emit = listener; return () => { emit = undefined; }; },
+    async playClip(providerCallId, _clip, playbackId) {
+      // Two ESL round trips stand between the clip decision and audible playback.
+      await new Promise((resolve) => setTimeout(resolve, clipCommandMs));
+      queueMicrotask(() => emit?.({ type: "playbackStopped", providerCallId, playbackId }));
+    },
+    async hangup() {}
+  };
+  const positive: ClassifierResult = { intent: "interested", sentiment: "positive", confidence: 0.9, transcript: "can lah", provider: "rules" };
+  const negative: ClassifierResult = { intent: "not_interested", sentiment: "negative", confidence: 0.9, transcript: "no need", provider: "rules" };
+  const orchestrator = new CallOrchestrator(store, adapter, { mode: "rules", async classify(transcript) { return transcript === "can lah" ? positive : negative; } }, () => 0);
+  const run = async (transcript: string, sttLatencyMs?: number) => {
+    const before = await turnSamples();
+    const call = await orchestrator.start({ ...validInput, flowId: flow.id });
+    await orchestrator.markAnswered(call.id);
+    await waitFor(() => orchestrator.get(call.id)?.status === "listening");
+    const windowId = orchestrator.get(call.id)!.listenWindowId!;
+    await orchestrator.submitTranscript(call.id, transcript, { windowId, utteranceId: randomUUID(), sttLatencyMs });
+    await waitFor(() => orchestrator.get(call.id)?.status === "ended");
+    const after = await turnSamples();
+    return { count: after.count - before.count, seconds: after.seconds - before.seconds };
+  };
+
+  const measured = await run("can lah", 850);
+  assert.equal(measured.count, 1);
+  // 850 ms of speech-end-to-receipt plus at least the clip command; well under a second of orchestration on top.
+  assert.ok(measured.seconds >= 0.85 + clipCommandMs / 1000 && measured.seconds < 1.85, `unexpected turn of ${measured.seconds}s`);
+  assert.deepEqual(await run("can lah"), { count: 0, seconds: 0 }, "a receipt without speech-end timing produces no turn sample");
+  assert.deepEqual(await run("no need", 850), { count: 0, seconds: 0 }, "a reply that hangs up instead of playing a clip produces no turn sample");
 });

@@ -6,6 +6,8 @@ import { currentLogContext, logger as defaultLogger } from "./logger.js";
 
 const outcomes = ["completed", "failed", "busy", "no_answer", "voicemail", "stopped", "interested", "not_interested", "callback", "unknown", "inbound_callback", "skipped"] as const;
 type Outcome = typeof outcomes[number];
+const sttProviders = ["deepgram", "openai", "fake", "unknown"] as const;
+const sttProviderLabel = (provider: string) => (sttProviders as readonly string[]).includes(provider) && provider !== "unknown" ? provider : "unknown";
 export type ClassifierFallbackReason = "timeout" | "provider_error" | "invalid_response";
 
 /** A registry per application keeps tests isolated and labels bounded. */
@@ -15,6 +17,7 @@ export class VoiceMetrics {
   private readonly outcomes: Counter<"outcome">;
   private readonly classifierLatency: Histogram<"provider">;
   private readonly sttLatency: Histogram<"provider">;
+  private readonly turnLatency: Histogram<"provider">;
   private readonly classifierFallbacks: Counter<"reason">;
   private readonly gatewayRegistered: Gauge<"mode">;
   private readonly seenCalls = new Map<string, { eventId?: string; terminal: boolean; requestId?: string }>();
@@ -27,8 +30,10 @@ export class VoiceMetrics {
     for (const outcome of outcomes) this.outcomes.inc({ outcome }, 0);
     this.classifierLatency = new Histogram({ name: "mktr_classifier_duration_seconds", help: "Transcript classification latency including any rules fallback.", labelNames: ["provider"], buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 5], registers: [this.registry] });
     this.sttLatency = new Histogram({ name: "mktr_stt_duration_seconds", help: "Provider final-transcript delivery latency after the audio utterance ended.", labelNames: ["provider"], buckets: [0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 5], registers: [this.registry] });
+    // The number a callee actually experiences: from the end of their speech to the moment the reply clip starts.
+    this.turnLatency = new Histogram({ name: "mktr_turn_duration_seconds", help: "Speech end to reply playback start, including endpointing, transcription, delivery, classification and ESL playback commands.", labelNames: ["provider"], buckets: [0.2, 0.3, 0.4, 0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5, 1.75, 2, 2.5, 3], registers: [this.registry] });
     for (const provider of ["rules", "openai"]) this.classifierLatency.zero({ provider });
-    for (const provider of ["deepgram", "openai", "fake", "unknown"]) this.sttLatency.zero({ provider });
+    for (const provider of sttProviders) { this.sttLatency.zero({ provider }); this.turnLatency.zero({ provider }); }
     this.classifierFallbacks = new Counter({ name: "mktr_classifier_fallbacks_total", help: "Classifier requests completed by rules after provider failure.", labelNames: ["reason"], registers: [this.registry] });
     for (const reason of ["timeout", "provider_error", "invalid_response"]) this.classifierFallbacks.inc({ reason }, 0);
     this.gatewayRegistered = new Gauge({ name: "mktr_gateway_registered", help: "Whether the last gateway readiness probe succeeded; simulator has no gateway dependency.", labelNames: ["mode"], registers: [this.registry] });
@@ -61,8 +66,10 @@ export class VoiceMetrics {
     if (Number.isFinite(milliseconds) && milliseconds >= 0) this.classifierLatency.observe({ provider }, milliseconds / 1000);
   }
   observeSttLatency(milliseconds: number, provider: string): void {
-    const label = ["deepgram", "openai", "fake"].includes(provider) ? provider : "unknown";
-    if (Number.isFinite(milliseconds) && milliseconds >= 0) this.sttLatency.observe({ provider: label }, milliseconds / 1000);
+    if (Number.isFinite(milliseconds) && milliseconds >= 0) this.sttLatency.observe({ provider: sttProviderLabel(provider) }, milliseconds / 1000);
+  }
+  observeTurnLatency(milliseconds: number, provider: string): void {
+    if (Number.isFinite(milliseconds) && milliseconds >= 0) this.turnLatency.observe({ provider: sttProviderLabel(provider) }, milliseconds / 1000);
   }
   observeClassifierFallback(reason: ClassifierFallbackReason): void { this.classifierFallbacks.inc({ reason }); }
 

@@ -1,5 +1,9 @@
 # Implementation decisions
 
+- Latency 0: Measure a turn from the transcript receipt's arrival minus the worker's `sttLatencyMs` to the resolution of `adapter.playClip`, because that is the silence the callee hears and neither existing histogram covers it; receipts without timing and replies that hang up produce no sample rather than a misleading partial one.
+- Latency 0: Capture PCM in the media worker at frame arrival, before provider buffering, with per-frame arrival times in a sidecar, because that is the only point where the bytes and timing equal the provider's input; `uuid_record` sessions are mixed audio. Capture is opt-in, ignored by Git, and a capture failure is logged per window without failing the call.
+- Latency 0: Anchor replay measurements on an energy-based end of speech rather than any engine's word timing, so two engines or settings are timed against the same instant; the replay reproduces the worker's concurrent socket open and pads real-time silence after the capture so a longer endpointing setting can still finalize.
+
 - C2a: Share CSV parsing and deduplication between free preview and import, then require the displayed `maxDncCredits` on enabled imports, because changing consent or expiry must never increase spending beyond the operator's confirmation.
 - C2a: Add checking counts under an optional `dnc` import result and expose separate authenticated preview, summary and single-check routes because the disabled import contract must remain byte-for-byte unchanged while permission reads stay free.
 - C2a: Cancel the draft's automatic paid expiry sweep and expose expiry warnings plus an explicit one-credit action because every paid check requires a visible cost and an operator click; valid evidence, including near-expiry results, is never rechecked.
