@@ -10,6 +10,7 @@ import { CampaignDialer, createCampaign } from "./campaigns.js";
 import { importContacts } from "./contacts.js";
 import { RuleClassifier } from "./classifier.js";
 import { ConsentPolicy, DNC_VALIDITY_MS } from "./compliance.js";
+import { permissionSummary } from "./permission-summary.js";
 import { CallOrchestrator } from "./orchestrator.js";
 import { InMemoryStore } from "./store.js";
 import type { TelephonyAdapter } from "./telephony.js";
@@ -141,4 +142,52 @@ test("backdated consent cannot replace the last withdrawal even after a later va
   store.saveConsent({ ...record, id: randomUUID(), consentedAt: "2026-09-03T00:00:00Z" });
   assert.throws(() => consent(store), /after the recorded opt-out/);
   assert.equal(new ConsentPolicy(store, () => now).authorize(phone).basis, "consent");
+});
+
+test("the permission summary surfaces all three registers and the check date from one paid lookup", () => {
+  // PDPC bills once per number and returns voice, text and fax together. Withholding
+  // two of the three discards data already paid for.
+  const store = new InMemoryStore();
+  const phone = "+6591234567";
+  store.saveDncClearance({
+    id: randomUUID(), phone, checkedAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+    cleared: true, source: "Singapore DNC Registry", reference: "105976942",
+    evidence: { statusCode: "S000", createdTime: "2026-09-11 16:00:02", validUntil: "2026-10-02T15:59:59.000Z", noVoiceCall: false, noTextMessage: true, noFax: false },
+  } as never);
+
+  const [permission] = permissionSummary(store, [phone]);
+  assert.equal(permission.dialable, true, "text registration must not block a voice call");
+  assert.equal(permission.basis, "dnc");
+  assert.deepEqual(permission.registers, { noVoiceCall: false, noTextMessage: true, noFax: false });
+  assert.equal(permission.reference, "105976942");
+  assert.ok(permission.checkedAt, "the operator must be able to see when it was checked");
+});
+
+test("a voice-registered number reports blocked but still shows its registers and reference", () => {
+  const store = new InMemoryStore();
+  const phone = "+6591234568";
+  store.saveDncClearance({
+    id: randomUUID(), phone, checkedAt: new Date().toISOString(), recordedAt: new Date().toISOString(),
+    cleared: false, source: "Singapore DNC Registry", reference: "105976943",
+    evidence: { statusCode: "S000", createdTime: null, validUntil: null, noVoiceCall: true, noTextMessage: false, noFax: false },
+  } as never);
+
+  const [permission] = permissionSummary(store, [phone]);
+  assert.equal(permission.dialable, false);
+  assert.equal(permission.skipReason, "Number is listed on the No Voice Call Register.");
+  assert.deepEqual(permission.registers, { noVoiceCall: true, noTextMessage: false, noFax: false });
+  assert.equal(permission.reference, "105976943");
+});
+
+test("consent-based permission reports the consent date and no registers", () => {
+  const store = new InMemoryStore();
+  const phone = "+6591234569";
+  const consentedAt = new Date(Date.now() - 60_000).toISOString();
+  store.saveConsent({ id: randomUUID(), phone, source: "Signed consent form", purpose: "voice_marketing", consentedAt, recordedAt: new Date().toISOString() });
+
+  const [permission] = permissionSummary(store, [phone]);
+  assert.equal(permission.basis, "consent");
+  assert.equal(permission.checkedAt, consentedAt);
+  assert.equal(permission.registers, null, "consent carries no Registry verdict");
+  assert.equal(permission.reference, "Signed consent form");
 });

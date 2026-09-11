@@ -253,7 +253,50 @@ export type ContactPermission = {
   basis: "consent" | "dnc" | null;
   clearanceExpiresAt: string | null;
   skipReason?: string;
+  /** When the evidence behind this permission was obtained: the Registry response
+   *  receipt time for a DNC clearance, or the consent time for recorded consent. */
+  checkedAt: string | null;
+  /** All three PDPC registers from the same paid lookup. ONLY `noVoiceCall` governs
+   *  dialling — text or fax registration never blocks a voice call. Null when the
+   *  permission came from consent or from a manually entered result with no snapshot. */
+  registers: { noVoiceCall: boolean; noTextMessage: boolean; noFax: boolean } | null;
+  /** PDPC transaction id for a Registry clearance, or the recorded consent reference. */
+  reference: string | null;
 };
+
+/** One side of a call, derived from the event timeline — never stored. */
+export type TranscriptTurn = {
+  at: string;
+  role: "agent" | "caller";
+  text: string;
+  nodeId?: string;
+  latencyMs?: number;
+};
+
+/** Row projection for the call-history list: no event array, so the list stays light. */
+export type CallSummary = {
+  id: string;
+  destination: string;
+  callerId: CallerId;
+  contactId?: string;
+  contactName?: string;
+  campaignId?: string;
+  campaignName?: string;
+  flowId: string;
+  flowVersion: number;
+  status: CallStatus;
+  outcome?: CallOutcome;
+  direction?: "outbound" | "inbound_callback";
+  createdAt: string;
+  endedAt?: string;
+  durationSeconds: number | null;
+  endReason?: string;
+  hasRecording: boolean;
+  transcriptTurns: number;
+  dialBasis: "consent" | "dnc" | null;
+};
+
+export type CallListPage = { calls: CallSummary[]; nextCursor: string | null; total: number };
 
 export type PermissionSummary = { contacts: ContactPermission[]; dncEnabled: boolean };
 export type ContactImportResult = { imported: number; duplicates: number; contacts: Contact[]; dnc?: DncCheckResult };

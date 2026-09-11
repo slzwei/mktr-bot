@@ -18,6 +18,7 @@ import { CampaignDialer, campaignDetail, createCampaign } from "./campaigns.js";
 import { importContacts, previewContacts } from "./contacts.js";
 import { DncChecker, previewDnc, type DncConfig } from "./dnc.js";
 import { permissionSummary } from "./permission-summary.js";
+import { callTranscript, listCallSummaries } from "./call-history.js";
 import { campaignCsv } from "./outcomes.js";
 import { validateOutcomeWebhook, type OutcomeWebhookConfig } from "./outcome-delivery.js";
 import type { TranscriptClassifier } from "./classifier.js";
@@ -32,6 +33,9 @@ import type { Store } from "./store.js";
 import { getTrunkStatus, type TelephonyAdapter } from "./telephony.js";
 import { clipUpload, discardTemporaryUpload, ensureClipStorage, processUploadedClip, removeClipFiles } from "./uploads.js";
 import { openCallEventStream } from "./sse.js";
+
+/** Calls embedded in /api/bootstrap for the dashboard; the history page pages the rest. */
+const BOOTSTRAP_CALLS = 25;
 
 export type AppDependencies = {
   store: Store;
@@ -146,7 +150,10 @@ export function createApp(dependencies: AppDependencies) {
   });
 
   app.get("/api/bootstrap", async (_request, response) => {
-    response.json({ flows: await store.listFlows(), clips: await store.listClips(), calls: await store.listCalls(), trunk: getTrunkStatus(calls.activeCallCount(), adapter) });
+    // Only the most recent calls: the history page pages through /api/calls instead.
+    // listCalls() returns every call WITH its event array, which a 500-contact campaign
+    // turns into a multi-megabyte bootstrap payload.
+    response.json({ flows: await store.listFlows(), clips: await store.listClips(), calls: (await store.listCalls()).slice(0, BOOTSTRAP_CALLS), trunk: getTrunkStatus(calls.activeCallCount(), adapter) });
   });
   app.get("/api/compliance/summary", async (_request, response) => {
     await store.flush();
@@ -309,10 +316,31 @@ export function createApp(dependencies: AppDependencies) {
     response.locals.callId = call.id;
     response.status(201).json(call);
   });
+  app.get("/api/calls", async (request, response) => {
+    const query = z.object({
+      limit: z.coerce.number().int().min(1).max(200).optional(),
+      cursor: z.string().max(120).optional(),
+      campaignId: z.string().uuid().optional(),
+      contactId: z.string().uuid().optional(),
+      status: z.string().max(40).optional(),
+      outcome: z.string().max(40).optional(),
+      search: z.string().max(120).optional(),
+    }).strict().parse(request.query);
+    await store.flush();
+    const contacts = new Map(store.listContacts().map((contact) => [contact.id, contact.name || contact.phone]));
+    const campaigns = new Map(store.listCampaigns().map((campaign) => [campaign.id, campaign.name]));
+    return response.json(listCallSummaries(await store.listCalls(), query, {
+      contactName: (id) => contacts.get(id),
+      campaignName: (id) => campaigns.get(id),
+    }));
+  });
+
   app.get("/api/calls/:id", async (request, response) => {
     const call = await calls.get(request.params.id);
     if (!call) return response.status(404).json({ error: "Call not found." });
-    return response.json(call);
+    // `transcript` is derived from the event timeline on every read, never stored, so
+    // it cannot drift from the events it is built from.
+    return response.json({ ...call, transcript: callTranscript(call) });
   });
   app.post("/api/calls/:id/end", async (request, response) => {
     z.object({}).strict().parse(request.body ?? {});

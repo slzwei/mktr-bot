@@ -1,5 +1,6 @@
 import type {
   BootstrapData,
+  CallListPage,
   CallSession,
   CampaignDetail,
   CampaignInput,
@@ -10,6 +11,7 @@ import type {
   DncRegistryEvidence,
   PermissionSummary,
   OutcomeDeliverySummary,
+  TranscriptTurn,
   Clip,
   FlowDefinition,
   OperatorSettings,
@@ -74,6 +76,15 @@ export const api = {
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   bootstrap: () => request<BootstrapData>("/api/bootstrap"),
   contacts: () => request<Contact[]>("/api/contacts"),
+  /** Paged, filterable call history. Omits the event array — use `call(id)` for detail. */
+  callHistory: (query: { limit?: number; cursor?: string; campaignId?: string; contactId?: string; status?: string; outcome?: string; search?: string } = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== "") params.set(key, String(value));
+    const qs = params.toString();
+    return request<CallListPage>(`/api/calls${qs ? `?${qs}` : ""}`);
+  },
+  /** One call with its full event timeline plus the derived conversation transcript. */
+  call: (id: string) => request<CallSession & { transcript: TranscriptTurn[] }>(`/api/calls/${id}`),
   previewContacts: (csv: string) => request<ContactImportPreview>("/api/contacts/preview", { method: "POST", body: JSON.stringify({ csv }) }),
   importContacts: (csv: string, maxDncCredits?: number) => request<ContactImportResult>("/api/contacts/import", { method: "POST", body: JSON.stringify({ csv, maxDncCredits }) }),
   permissionSummary: () => request<PermissionSummary>("/api/compliance/summary"),
