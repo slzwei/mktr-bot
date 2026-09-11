@@ -25,6 +25,7 @@ services:
       MKTR_FREESWITCH_ESL_PORT: 8021
       MKTR_FREESWITCH_ESL_PASSWORD: ${MKTR_FREESWITCH_ESL_PASSWORD:-}
       MKTR_MEDIA_GATEWAY_TOKEN: ${MKTR_MEDIA_GATEWAY_TOKEN:-}
+      MKTR_MEDIA_WORKER_URL: ws://media-worker:8090
       DATABASE_URL: postgresql://mktr:mktr@postgres:5432/mktr
       REDIS_URL: redis://redis:6379/0
     volumes:
@@ -41,6 +42,34 @@ services:
         ipv4_address: 172.29.80.2
       proxy:
         ipv4_address: 172.29.81.3
+
+  media-worker:
+    build:
+      context: .
+      dockerfile: media-worker/Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 15s
+    environment:
+      NODE_ENV: production
+      MKTR_TELEPHONY_MODE: ${MKTR_TELEPHONY_MODE:-simulated}
+      MKTR_MEDIA_WORKER_PORT: 8090
+      MKTR_API_INTERNAL_URL: http://api:8787
+      MKTR_MEDIA_GATEWAY_TOKEN: ${MKTR_MEDIA_GATEWAY_TOKEN:-}
+      MKTR_STT_PROVIDER: ${MKTR_STT_PROVIDER:-deepgram}
+      MKTR_STT_LANGUAGE: ${MKTR_STT_LANGUAGE:-en-SG}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      default: {}
+      telephony:
+        ipv4_address: 172.29.80.3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
 
   caddy:
     image: caddy:2.10.2-alpine

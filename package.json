@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node .server-dist/server/index.js",
     "test": "tsx --test server/**/*.test.ts",
+    "test:media": "tsx --test media-worker/*.test.ts",
     "test:e2e": "playwright test",
     "lint": "tsc --noEmit",
     "render:freeswitch": "tsx scripts/render-freeswitch.ts",
@@ -29,6 +30,7 @@
     "pino": "^10.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "ws": "^8.21.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -39,6 +41,7 @@
     "@types/react": "^19.0.3",
     "@types/react-dom": "^19.0.2",
     "@types/supertest": "^7.2.1",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.4",
     "@xmldom/xmldom": "^0.9.12",
     "concurrently": "^9.1.2",

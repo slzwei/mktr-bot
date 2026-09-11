@@ -78,3 +78,5 @@ Gateway registration, TLS 5061, and actual audio transport remain operator check
 | Media | SRTP `54.251.255.196-54.251.255.211`, UDP `10000-30000` |
 | DTMF | RFC2833 |
 | Concurrent calls | `5` |
+
+The separate `media-worker` receives authenticated callee-only PCM WebSockets from `mod_audio_stream` while a call is listening. `MKTR_STT_PROVIDER=deepgram` selects Nova-3 with 750 ms endpointing, linear16 8 kHz mono. `MKTR_STT_LANGUAGE` defaults to `en-SG` and maps to Deepgram wire code `en` (the provider does not list `en-SG`). Configure `DEEPGRAM_API_KEY` and a URL-safe `MKTR_MEDIA_GATEWAY_TOKEN` of at least 16 characters privately on the operator host. Simulator mode leaves provider streaming disabled. Run `npm run test:media` for loopback audio and fake STT verification; real speech accuracy belongs to the first-live-call runbook.

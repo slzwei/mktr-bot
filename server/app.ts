@@ -23,7 +23,7 @@ export type AppDependencies = {
   store: ApplicationStore;
   adapter: TelephonyAdapter;
   classifier: TranscriptClassifier;
-  calls: Pick<CallOrchestrator, "activeCallCount" | "start" | "get" | "stop" | "markAnswered" | "submitTranscript" | "subscribe">;
+  calls: Pick<CallOrchestrator, "activeCallCount" | "start" | "get" | "stop" | "markAnswered" | "submitTranscript" | "subscribe"> & Partial<Pick<CallOrchestrator, "mediaError">>;
   authStore: AuthStore;
   webOrigin?: string;
   mediaGatewayToken?: string;
@@ -71,8 +71,18 @@ export function createApp(dependencies: AppDependencies) {
     response.json(await calls.markAnswered(z.string().parse(request.params.id)));
   });
   app.post("/api/calls/:id/transcript", mediaOnly, async (request, response) => {
-    const body = z.object({ transcript: z.string().trim().min(1).max(2_000) }).strict().parse(request.body);
-    response.json(await calls.submitTranscript(z.string().parse(request.params.id), body.transcript));
+    const body = z.object({ transcript: z.string().trim().min(1).max(2_000), windowId: z.string().uuid(), utteranceId: z.string().uuid(), sttLatencyMs: z.number().min(0).max(60_000).optional() }).strict().parse(request.body);
+    response.json(await calls.submitTranscript(z.string().parse(request.params.id), body.transcript, body));
+  });
+  app.get("/api/media/calls/:id/window", mediaOnly, async (request, response) => {
+    const call = await calls.get(z.string().parse(request.params.id));
+    if (!call) return response.status(404).json({ error: "Call not found." });
+    return response.json({ status: call.status, listenWindowId: call.listenWindowId });
+  });
+  app.post("/api/media/calls/:id/error", mediaOnly, async (request, response) => {
+    const body = z.object({ windowId: z.string().uuid(), error: z.literal("Speech transcription unavailable.") }).strict().parse(request.body);
+    if (!calls.mediaError) return response.status(503).json({ error: "Media error handling unavailable." });
+    return response.json(await calls.mediaError(z.string().parse(request.params.id), body.windowId));
   });
 
   // Every remaining API route, including SSE/history/media, uses the operator session.
@@ -163,6 +173,7 @@ export function createApp(dependencies: AppDependencies) {
     if (response.headersSent) { response.end(); return; }
     if (error instanceof z.ZodError) return response.status(400).json({ error: error.issues[0]?.message ?? "Invalid request." });
     const statusCode = (error as { status?: number })?.status;
+    if (statusCode === 409) return response.status(409).json({ error: "The listen window has closed." });
     if (statusCode === 400 || statusCode === 413 || statusCode === 404) return response.status(statusCode).json({ error: statusCode === 413 ? "Request is too large." : statusCode === 404 ? "Resource not found." : "Invalid request." });
     const message = error instanceof Error ? error.message : "Unexpected server error.";
     if (/^The Singtel trunk is at its \d+-call limit\.$/.test(message) || message === "Publish the flow before starting a call.") return response.status(409).json({ error: message });

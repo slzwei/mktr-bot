@@ -29,6 +29,8 @@ const activeStatuses = new Set<CallStatus>([
 ]);
 
 type PlaybackDelay = (clip: Clip, mode: TelephonyAdapter["mode"]) => number;
+export type TranscriptReceipt = { windowId: string; utteranceId: string; sttLatencyMs?: number };
+export class ListenWindowClosedError extends Error { readonly status = 409; }
 
 const defaultPlaybackDelay: PlaybackDelay = (clip, mode) => {
   if (mode === "simulated") {
@@ -160,14 +162,24 @@ export class CallOrchestrator {
     }
   }
 
-  submitTranscript(id: string, transcript: string): Promise<CallSession> {
-    return this.enqueue(id, () => this.classifyTranscript(id, transcript));
+  submitTranscript(id: string, transcript: string, receipt?: TranscriptReceipt): Promise<CallSession> {
+    return this.enqueue(id, () => this.classifyTranscript(id, transcript, receipt));
   }
 
-  private async classifyTranscript(id: string, transcript: string): Promise<CallSession> {
+  async mediaError(id: string, windowId: string): Promise<CallSession> {
     const session = this.store.getCall(id);
     if (!session) throw new Error("Call not found.");
-    if (session.status !== "listening") throw new Error("The call is not waiting for a callee response.");
+    if (session.status !== "listening" || session.listenWindowId !== windowId) return session;
+    return this.finish(session, "failed", "Speech transcription unavailable.");
+  }
+
+  private async classifyTranscript(id: string, transcript: string, receipt?: TranscriptReceipt): Promise<CallSession> {
+    const session = this.store.getCall(id);
+    if (!session) throw new Error("Call not found.");
+    if (receipt && session.lastUtteranceId === receipt.utteranceId && session.lastListenWindowId === receipt.windowId) return session;
+    if (session.status !== "listening" || this.terminations.has(id) || (receipt && session.listenWindowId !== receipt.windowId)) {
+      throw new ListenWindowClosedError("The call is not waiting in this listen window.");
+    }
     const flow = this.flowForSession(session);
     if (!flow) throw new Error("Call flow no longer exists.");
     const listeningNode = this.nodeFor(flow, session.currentNodeId);
@@ -176,9 +188,13 @@ export class CallOrchestrator {
     }
 
     try {
-      this.record(session, "transcript_final", "Transcript final", transcript, listeningNode.id, 78);
+      this.record(session, "transcript_final", "Transcript final", transcript, listeningNode.id, receipt?.sttLatencyMs);
+      session.lastListenWindowId = session.listenWindowId;
+      session.lastUtteranceId = receipt?.utteranceId;
+      session.listenWindowId = undefined;
       session.status = "classifying";
       this.persist(session);
+      await this.adapter.stopListening?.(session.providerCallId);
 
       const startedAt = performance.now();
       const result = await this.classifier.classify(transcript);
@@ -276,7 +292,7 @@ export class CallOrchestrator {
     }
 
     if (node.type === "listen") {
-      this.enterListening(session, node);
+      await this.enterListening(session, node);
       return;
     }
 
@@ -298,7 +314,8 @@ export class CallOrchestrator {
     throw new Error("Unsupported flow node.");
   }
 
-  private enterListening(session: CallSession, node: FlowNode) {
+  private async enterListening(session: CallSession, node: FlowNode) {
+    session.listenWindowId = randomUUID();
     this.transition(
       session,
       "listening",
@@ -307,6 +324,7 @@ export class CallOrchestrator {
       this.adapter.mode === "simulated" ? "Simulator response window" : "Waiting for media gateway transcript",
       node.id
     );
+    await this.adapter.startListening?.(session.providerCallId, session.id, session.listenWindowId);
     const transcript = this.simulationReplies.get(session.id)?.shift();
     if (!transcript) return;
     if (this.simulationReplies.get(session.id)?.length === 0) {
@@ -469,6 +487,7 @@ export class CallOrchestrator {
     this.cancelSchedule(session.id);
     session.status = status;
     session.endedAt = new Date().toISOString();
+    session.listenWindowId = undefined;
     session.endReason = reason;
     this.record(session, status === "failed" ? "error" : "ended", status === "failed" ? "Call failed" : "Call ended", reason);
     this.persist(session);

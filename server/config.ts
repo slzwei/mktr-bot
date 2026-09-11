@@ -24,6 +24,7 @@ export const config = {
     openaiModel: process.env.MKTR_OPENAI_CLASSIFIER_MODEL ?? "gpt-4o-mini"
   },
   mediaGateway: {
+    workerUrl: process.env.MKTR_MEDIA_WORKER_URL ?? "ws://media-worker:8090",
     webhookToken: process.env.MKTR_MEDIA_GATEWAY_TOKEN ?? ""
   },
   singtel: {

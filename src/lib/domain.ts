@@ -131,6 +131,9 @@ export type CallSession = {
   endedAt?: string;
   endReason?: string;
   classifierResult?: ClassifierResult;
+  listenWindowId?: string;
+  lastListenWindowId?: string;
+  lastUtteranceId?: string;
   events: CallEvent[];
 };
 

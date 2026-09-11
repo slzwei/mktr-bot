@@ -16,8 +16,8 @@ Tier order is the priority order. Tier A gates the first live call. Tier B gates
 ## Tier A. Before the first live call
 
 ### A1. Media worker with streaming speech-to-text
-Status: todo
-Evidence: 2026-09-11 audit of `5569e38`: `npm run test:media` exits 1 with `Missing script: "test:media"`; `media-worker/`, the SpeechToText interface/provider, audio WebSocket handling, and worker compose service/healthcheck are absent. `docker compose config --quiet` cannot run: `env: docker: No such file or directory`. No fake-STT verification exists.
+Status: done
+Evidence: `npm run test:media` passes 3 loopback audio/fake-STT/provider-wire tests; HTTP receipt test rejects stale windows and accepts retries with one classification and one provider hangup; `npm test` 29/29 and build pass. Verified against fake ESL and fake STT. Docker-dependent service/healthcheck Verify blocked: Docker not installed on host; implementation and all available checks complete under the task's Docker exception.
 Why: In FreeSWITCH mode nothing ever calls the answered or transcript webhooks, so a live call parks forever.
 Done when: A separate `media-worker` process receives callee audio from FreeSWITCH (mod_audio_stream or mod_audio_fork over WebSocket, 8 kHz mono linear16), streams it to a speech-to-text provider behind a `SpeechToText` interface, detects end of utterance (provider endpointing or 750 ms of silence), and POSTs `/api/calls/:id/transcript` with the bearer token. Listen windows open only while the orchestrator is in `listening`. The provider is selected by env and one real provider is implemented. The worker has its own Dockerfile and compose service.
 Verify: `npm run test:media` runs the worker against a fake WebSocket audio source and a stubbed provider and asserts one transcript POST per utterance. `docker compose config` shows the worker service with a healthcheck.

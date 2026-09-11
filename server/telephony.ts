@@ -18,6 +18,8 @@ export interface TelephonyAdapter {
   originate(input: Pick<TestCallInput, "destination" | "callerId">, providerCallId?: string): Promise<TelephonyCall>;
   playClip(providerCallId: string, clip: Clip, playbackId?: string): Promise<void>;
   hangup(providerCallId: string): Promise<void>;
+  startListening?(providerCallId: string, callId: string, windowId: string): Promise<void>;
+  stopListening?(providerCallId: string): Promise<void>;
   onEvent?(listener: (event: TelephonyEvent) => void): () => void;
   close?(): void | Promise<void>;
 }
@@ -38,11 +40,13 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
   private readonly jobs = new Map<string, string>();
   private readonly earlyJobs = new Map<string, EslEvent>();
   private readonly seenEvents = new Set<string>();
+  private readonly streams = new Set<string>();
   private readonly unsubscribe: () => void;
 
   constructor(
     readonly client = new EslClient(config.freeswitch),
-    readonly configured = isProductionGatewayConfigured()
+    readonly configured = isProductionGatewayConfigured(),
+    private readonly media = config.mediaGateway
   ) { this.unsubscribe = client.onEvent((event) => this.receive(event)); }
 
   onEvent(listener: (event: TelephonyEvent) => void): () => void {
@@ -89,6 +93,28 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
     if (!/^\/[a-zA-Z0-9/_-]+$/.test(config.freeswitch.mediaDirectory)) throw new Error("FreeSWITCH media directory is invalid.");
     await this.client.command(`api uuid_setvar ${providerCallId} mktr_playback_id ${playbackId}`);
     await this.client.command(`api uuid_broadcast ${providerCallId} ${config.freeswitch.mediaDirectory}/${filename} aleg`);
+  }
+
+  async startListening(providerCallId: string, callId: string, windowId: string): Promise<void> {
+    [providerCallId, callId, windowId].forEach((id) => this.assertUuid(id));
+    if (this.media.webhookToken.length < 16 || !/^[A-Za-z0-9_-]+$/.test(this.media.webhookToken)) {
+      throw new Error("Media gateway token must have at least 16 URL-safe characters.");
+    }
+    const url = new URL(this.media.workerUrl);
+    if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || url.search || url.hash || !/^[a-zA-Z0-9.:/-]+$/.test(url.href)) {
+      throw new Error("Media worker URL must be a plain ws or wss service URL.");
+    }
+    url.pathname = `/audio/${callId}/${windowId}`;
+    await this.client.command(`api uuid_setvar ${providerCallId} STREAM_EXTRA_HEADERS ${JSON.stringify({ Authorization: `Bearer ${this.media.webhookToken}` })}`);
+    // mono is the read (callee) leg; 8k is signed little-endian PCM on the supported Linux hosts.
+    await this.client.command(`api uuid_audio_stream ${providerCallId} start ${url.href} mono 8k`);
+    this.streams.add(providerCallId);
+  }
+
+  async stopListening(providerCallId: string): Promise<void> {
+    this.assertUuid(providerCallId);
+    if (!this.streams.delete(providerCallId)) return;
+    await this.client.command(`api uuid_audio_stream ${providerCallId} stop`);
   }
 
   close(): void { this.unsubscribe(); this.client.close(); }

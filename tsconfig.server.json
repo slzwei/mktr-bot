@@ -6,5 +6,6 @@
     "rootDir": ".",
     "declaration": false
   },
-  "include": ["server/**/*.ts", "src/lib/domain.ts"]
+  "include": ["server/**/*.ts", "media-worker/**/*.ts", "src/lib/domain.ts"],
+  "exclude": ["**/*.test.ts", "**/test-support/**"]
 }
