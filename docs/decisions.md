@@ -110,3 +110,4 @@ Channel inventory and variable inspection use the [FreeSWITCH API command interf
 - A4: Include `libevent-pthreads-2.1-7` in the gateway runtime because `mod_audio_stream` links libevent's threading support, and print shared-library check failures because successful compilation alone must not hide an incomplete runtime image.
 
 - B6: Run container HTTP probes inside the disposable internal network because Docker intentionally suppresses host publication on that network; this preserves network isolation while testing the images through their real HTTP interfaces.
+- A4: Rely on the pinned FreeSWITCH core's built-in PCMA/G.711 registration because that core is compiled and preloaded before the overlay module list; a separate codec module is unnecessary, while actual negotiation still requires the operator's controlled call.
