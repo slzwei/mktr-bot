@@ -48,7 +48,7 @@ Channel inventory and variable inspection use the [FreeSWITCH API command interf
 - B1: Store every published graph immutably, enforce that rule with a database trigger, and retain full call JSON snapshots alongside indexed columns because later media/outcome fields must survive restart without changing the historical graph.
 - B1: Quarantine unclaimed clip files and archive records with missing bytes because recovery should preserve uploaded content and published references; deletions retain immutable flow history.
 - B1: Default runtime state to Prisma and require an explicit memory-store setting for disposable simulator development because a missing database must never silently reset production state.
-- B1: Run the same database behavior suite against a disposable native PostgreSQL 17 cluster on this host because Docker is absent; retain the Compose PostgreSQL 16 path as a separate blocked verification step until the operator installs Docker.
+- B1: Run the same database behavior suite against a disposable native PostgreSQL 17 cluster on this host because Docker is absent; the Compose PostgreSQL 16 path was initially blocked and subsequently passed on GitHub's Docker runner without installing Docker locally.
 
 - A8: Keep the first destination and review explicitly pending Shawn's designation because a fixture phone number is not authorization to call a real recipient; the runbook fixes the first caller ID and reduces capacity to one with a 60-second answered-call limit.
 - A8: Validate every runbook command with shell parsing, then test the renderer/config inspector and private diagnostics through isolated fixtures because deployment syntax checks cannot establish real TLS, provider, Docker or trunk behavior.

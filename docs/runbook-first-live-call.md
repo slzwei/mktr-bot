@@ -171,7 +171,7 @@ Confirm simulator mode, `gateway: "n/a"`, zero active calls, gateway stopped, an
 
 Run `npm run verify:runbook` after editing this document. It syntax-checks every Bash block without evaluation, executes the gateway renderer with dummy inputs, verifies private diagnostic command construction using a fake Docker executable, and exercises the first-call config inspector with generated fixtures. It does not execute runbook deployment commands, call Singtel, or contact STT/OpenAI.
 
-A8 remains blocked by **Shawn's review and designation of the one approved E.164 destination**. Docker-dependent functional checks remain blocked here by **Docker not installed on host**. Singtel REGED/TLS, actual gateway image execution, real audio/STT, and the operator call are intentionally left to this runbook. Add the operator's dated review and actual results to the checklist before changing the relevant blocked status.
+A8 remains blocked by **Shawn's review and designation of the one approved E.164 destination**. Docker is absent on the local development host; [GitHub CI 34569980907](https://github.com/slzwei/mktr-bot/actions/runs/34569980907) now verifies both Compose configurations, PostgreSQL 16 integration and actual simulator API/worker container startup, health, authentication and clean shutdown. The [complete gateway image build](https://github.com/slzwei/mktr-bot/actions/runs/34569980870) also passed. Singtel REGED/TLS, actual gateway execution, deployment commands, real audio/STT and the operator call are left to this runbook. Add the operator's dated review and actual results to the checklist before changing the relevant blocked status.
 
 ## Later controlled checks for campaigns
 
