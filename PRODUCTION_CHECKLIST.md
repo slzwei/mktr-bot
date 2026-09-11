@@ -104,8 +104,8 @@ Verify: An e2e test uploads a 44.1 kHz stereo MP3 and asserts the FreeSWITCH fil
 
 
 ### B5. SSE robustness
-Status: todo
-Evidence: 2026-09-11 browser probes: two contexts show `1 of 5` versus `0 of 5` active calls; after restarting the disposable API mid-call, the console remains Queued with no API requests for 7 s and capacity 1 while the server reports 0. A 16.2 s SSE observation has no id or comment ping. `src/components/CallConsole.tsx:59` closes EventSource on error; no Caddy configuration exists. The required reconnect/shared-capacity behavior fails, and no corresponding committed e2e tests exist.
+Status: done
+Evidence: 2026-09-11 `npm run test:e2e:restart` passes: a real simulator API process is killed and restarted against disposable native PostgreSQL 17; its authenticated console refetches/reconnects with bootstrap polling blocked, and two browser contexts both show one active call then zero. The same test observes the real 15-second comment heartbeat and event ID; `server/sse.test.ts` verifies current-snapshot reconnect and subscription cleanup. Caddy has immediate event flushing and no-buffer headers; Vite forwards abrupt upstream disconnects. `npm run build`, `npm test` (35/35), and isolated `npm run test:e2e` (11/11) pass. No real call or live gateway check was run.
 Why: No heartbeat, no reconnect, and the capacity meter reflects only this browser's calls.
 Done when: The server sends a comment ping every 15 s and an `id:` per event. The client resyncs with `Last-Event-ID` or refetches the call on reconnect. Trunk capacity stays accurate across operators through a bootstrap refresh or a shared stream. The Caddy config disables buffering for `/api/calls/*/events`.
 Verify: An e2e test restarts the api mid-call and confirms the console recovers. Two browser contexts show the same active count.

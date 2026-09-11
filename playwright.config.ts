@@ -12,7 +12,7 @@ process.env.MKTR_E2E_AUTH_STATE = path.resolve("test-results", `auth-${apiPort}.
 export default defineConfig({
   projects: [
     { name: "setup", testMatch: /auth\.setup\.ts/ },
-    { name: "chromium", testIgnore: /auth\.setup\.ts/, dependencies: ["setup"], use: { storageState: process.env.MKTR_E2E_AUTH_STATE } }
+    { name: "chromium", testIgnore: /(auth\.setup|sse-restart\.spec)\.ts/, dependencies: ["setup"], use: { storageState: process.env.MKTR_E2E_AUTH_STATE } }
   ],
   testDir: "./tests",
   workers: 1,

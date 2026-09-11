@@ -47,18 +47,53 @@ export function CallConsole({ open, flows, trunk, activeCall, onClose, onStarted
   const [scenario, setScenario] = useState<"interested" | "not_interested" | "callback" | "uncertain">("interested");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
+  const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
+  const isActiveCall = Boolean(activeCall && active.has(activeCall.status));
 
   useEffect(() => {
     if (!flowId && publishedFlows[0]) setFlowId(publishedFlows[0].id);
   }, [flowId, publishedFlows]);
 
   useEffect(() => {
-    if (!activeCall || !active.has(activeCall.status)) return;
-    const events = new EventSource(`/api/calls/${activeCall.id}/events`);
-    events.onmessage = (event) => onUpdated(JSON.parse(event.data) as CallSession);
-    events.onerror = () => events.close();
-    return () => events.close();
-  }, [activeCall?.id, activeCall?.status, onUpdated]);
+    if (!activeCall || !isActiveCall) return;
+    const callId = activeCall.id;
+    let disposed = false;
+    let resyncing = false;
+    let events: EventSource | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const resync = async () => {
+      if (resyncing || disposed) return;
+      resyncing = true;
+      try {
+        const call = await api.getCall(callId);
+        if (!disposed) onUpdated(call);
+      } catch {
+        if (!disposed) setStreamState("reconnecting");
+      } finally { resyncing = false; }
+    };
+    const connect = () => {
+      if (disposed) return;
+      const stream = new EventSource(`/api/calls/${callId}/events`);
+      events = stream;
+      stream.onopen = () => { if (!disposed) { setStreamState("connected"); void resync(); } };
+      stream.onmessage = (event) => {
+        if (disposed) return;
+        try { onUpdated(JSON.parse(event.data) as CallSession); }
+        catch { setStreamState("reconnecting"); void resync(); }
+      };
+      stream.onerror = () => {
+        if (disposed) return;
+        setStreamState("reconnecting");
+        void resync();
+        // Native EventSource retries dropped sockets. HTTP failures can close it
+        // permanently, so recreate only that terminal transport state.
+        if (stream.readyState === EventSource.CLOSED) retry = setTimeout(connect, 1000);
+      };
+    };
+    setStreamState("connecting");
+    connect();
+    return () => { disposed = true; clearTimeout(retry); events?.close(); };
+  }, [activeCall?.id, isActiveCall, onUpdated]);
 
   const start = async () => {
     setError("");
@@ -174,6 +209,7 @@ export function CallConsole({ open, flows, trunk, activeCall, onClose, onStarted
       )}
 
       {error && <p className="form-error">{error}</p>}
+      {isLive && streamState !== "connected" && <p className="console-footnote" role="status">{streamState === "connecting" ? "Connecting to call updates…" : "Reconnecting to call updates…"}</p>}
       <div className="console-footnote">
         {trunk.mode === "simulated" ? "Safe simulator: no SIP INVITE is sent." : "Live FreeSWITCH gateway: SIP originations enabled."}
       </div>

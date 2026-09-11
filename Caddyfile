@@ -7,6 +7,8 @@
     handle @events {
         reverse_proxy api:8787 {
             flush_interval -1
+            # Preserve heartbeat delivery through every proxy layer.
+            header_down X-Accel-Buffering no
         }
     }
     handle {

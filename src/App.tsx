@@ -47,6 +47,15 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string }>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+
+  const refreshOperations = useCallback(async () => {
+    const bootstrap = await api.bootstrap();
+    // Refresh operational state without replacing unsaved editor/clip changes.
+    setData((current) => current ? { ...current, calls: bootstrap.calls, trunk: bootstrap.trunk } : current);
+    setActiveCall((current) => current ? bootstrap.calls.find((call) => call.id === current.id) ?? current : current);
+    setRefreshFailed(false);
+  }, []);
 
   useEffect(() => {
     api.bootstrap()
@@ -60,6 +69,22 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
       })
       .catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not load the application." }));
   }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    let pending = false;
+    const refresh = async () => {
+      if (stopped || pending) return;
+      pending = true;
+      try { await refreshOperations(); }
+      catch { if (!stopped) setRefreshFailed(true); }
+      finally { pending = false; }
+    };
+    const timer = setInterval(() => { void refresh(); }, 2000);
+    const focused = () => { void refresh(); };
+    window.addEventListener("focus", focused);
+    return () => { stopped = true; clearInterval(timer); window.removeEventListener("focus", focused); };
+  }, [refreshOperations]);
 
   useEffect(() => {
     if (!notice) return;
@@ -130,7 +155,8 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
       const activeCalls = calls.filter((candidate) => !["ended", "failed"].includes(candidate.status)).length;
       return { ...current, calls, trunk: { ...current.trunk, activeCalls } };
     });
-  }, []);
+    void refreshOperations().catch(() => setRefreshFailed(true));
+  }, [refreshOperations]);
 
   const onClipCreated = (clip: Clip) => {
     setData((current) => current ? { ...current, clips: [clip, ...current.clips] } : current);
@@ -174,6 +200,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
           <div><RadioTower size={16} /><span><strong>Singtel SIP</strong><small>{data.trunk.trunkUsername}</small></span></div>
           <div className="capacity-meter"><i style={{ width: `${(data.trunk.activeCalls / data.trunk.maxConcurrentCalls) * 100}%` }} /></div>
           <small>{data.trunk.activeCalls} of {data.trunk.maxConcurrentCalls} calls active</small>
+          {refreshFailed && <small role="status">Refreshing connection…</small>}
         </div>
       </aside>
 

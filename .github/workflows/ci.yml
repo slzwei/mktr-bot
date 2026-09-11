@@ -36,6 +36,7 @@ jobs:
       - run: npm run test:db
       - run: npm run test:backup
       - run: npm run test:e2e
+      - run: npm run test:e2e:restart
       - name: Validate compose without starting telephony
         run: |
           docker compose config --quiet

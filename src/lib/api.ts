@@ -49,5 +49,6 @@ export const api = {
     return request<Clip>("/api/clips/upload", { method: "POST", body });
   },
   startCall: (input: TestCallInput) => request<CallSession>("/api/calls", { method: "POST", body: JSON.stringify(input) }),
+  getCall: (id: string) => request<CallSession>(`/api/calls/${id}`),
   stopCall: (id: string) => request<CallSession>(`/api/calls/${id}/end`, { method: "POST" })
 };

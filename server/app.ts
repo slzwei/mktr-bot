@@ -21,6 +21,7 @@ import type { CallOrchestrator } from "./orchestrator.js";
 import type { Store } from "./store.js";
 import { getTrunkStatus, type TelephonyAdapter } from "./telephony.js";
 import { clipUpload, discardTemporaryUpload, ensureClipStorage, processUploadedClip, removeClipFiles } from "./uploads.js";
+import { openCallEventStream } from "./sse.js";
 
 export type AppDependencies = {
   store: Store;
@@ -213,16 +214,10 @@ export function createApp(dependencies: AppDependencies) {
     response.json(call);
   });
   app.get("/api/calls/:id/events", async (request, response) => {
-    const call = await calls.get(request.params.id);
+    const call = calls.get(request.params.id);
     if (!call) return response.status(404).json({ error: "Call not found." });
-    response.setHeader("Content-Type", "text/event-stream");
-    response.setHeader("Cache-Control", "no-cache");
-    response.setHeader("Connection", "keep-alive");
-    response.flushHeaders();
     streams.add(response);
-    response.write(`data: ${JSON.stringify(call)}\n\n`);
-    const unsubscribe = calls.subscribe(request.params.id, (session) => { response.write(`data: ${JSON.stringify(session)}\n\n`); });
-    request.on("close", () => { unsubscribe(); streams.delete(response); });
+    openCallEventStream(response, call, (listener) => calls.subscribe(request.params.id, listener), { onClose: () => streams.delete(response) });
   });
   app.use("/api", (_request, response) => response.status(404).json({ error: "API route not found." }));
   const webRoot = path.resolve(process.cwd(), "dist");

@@ -12,6 +12,7 @@
     "test": "tsx --test server/**/*.test.ts",
     "test:media": "tsx --test media-worker/*.test.ts",
     "test:e2e": "playwright test",
+    "test:e2e:restart": "playwright test --config playwright.restart.config.ts",
     "lint": "tsc --noEmit",
     "render:freeswitch": "tsx scripts/render-freeswitch.ts",
     "test:freeswitch": "tsx --test server/freeswitch-config.test.ts",

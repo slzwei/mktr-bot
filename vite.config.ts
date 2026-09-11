@@ -8,7 +8,17 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": apiTarget,
+      "/api": {
+        target: apiTarget,
+        configure(proxy) {
+          proxy.on("proxyRes", (upstream, request, response) => {
+            if (!/^\/api\/calls\/[^/?]+\/events(?:\?|$)/.test(request.url ?? "")) return;
+            // http-proxy does not end an already-started response when the API
+            // crashes. Forward that disconnect so EventSource can reconnect.
+            upstream.once("close", () => { if (!upstream.complete) response.destroy(); });
+          });
+        }
+      },
       "/media/clips": apiTarget
     }
   }

@@ -39,6 +39,7 @@ npm run test:db # isolated Compose Postgres
 npm run build
 npx playwright install chromium
 npm run test:e2e
+npm run test:e2e:restart # requires existing native PostgreSQL tools
 ```
 
 Browser checks cover canvas dragging, audio file drops and uploads, media seeking, and playback. They start separate local API and web servers and use `test-results/clips` for test uploads.
@@ -48,6 +49,10 @@ Node is pinned to `24.14.0` in `engines.node`, `.nvmrc`, the API image and CI. C
 See `docs/backups.md` for the consistent database/clip backup, restore procedure and completed native PostgreSQL drill. `npm run test:backup` creates and removes only its own disposable localhost database cluster. Container user/backup validation and a default-branch CI run require Docker and a connected GitHub remote, respectively.
 
 Browser verification first signs in with a process-generated fixture password, then shares the resulting secure session with the Chromium tests. Override `MKTR_E2E_API_PORT` and `MKTR_E2E_WEB_PORT` for an isolated parallel run. Session state is under ignored `test-results/`.
+
+The restart browser test creates its own native Postgres cluster, signs in two browser contexts, observes the 15-second stream heartbeat, crashes and restarts only its simulator API, and verifies the open console recovers and both operators see the same call count. It generates fixture credentials in memory and removes its own database and temporary files. It never connects to a SIP trunk.
+
+Call updates include event IDs and a comment heartbeat every 15 seconds. The console keeps native EventSource reconnection enabled and refetches the current call whenever a stream opens again. Operational state refreshes every two seconds and on window focus so another operator's activity reaches the capacity meter without overwriting an unsaved flow. Caddy flushes `/api/calls/*/events` immediately; the API disables intermediary buffering and releases each subscription on disconnect.
 
 ## Operator access and HTTPS
 
