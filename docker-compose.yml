@@ -36,7 +36,9 @@ services:
       redis:
         condition: service_healthy
     networks:
-      default:
+      default: {}
+      telephony:
+        ipv4_address: 172.29.80.2
       proxy:
         ipv4_address: 172.29.81.3
 
@@ -88,21 +90,51 @@ services:
       retries: 10
 
   freeswitch:
-    image: signalwire/freeswitch:1.10.12
+    image: mktr-freeswitch:1.11.3
+    build:
+      context: .
+      dockerfile: telephony/freeswitch/Dockerfile
     profiles: ["live"]
     restart: unless-stopped
+    stop_grace_period: 20s
     ports:
       - "5061:5061/tcp"
-      - "10000-10020:10000-10020/udp"
-      - "8021:8021/tcp"
+      - "10000-10199:10000-10199/udp"
     environment:
+      MKTR_GATEWAY_PUBLIC_IP: ${MKTR_GATEWAY_PUBLIC_IP:-}
       MKTR_SINGTEL_SIP_USERNAME: ${MKTR_SINGTEL_SIP_USERNAME:-sip69992409}
       MKTR_SINGTEL_SIP_PASSWORD: ${MKTR_SINGTEL_SIP_PASSWORD:-}
       MKTR_SINGTEL_SIP_HOST: sipsg01.b3networks.com
+      MKTR_SINGTEL_CA_CERT_PATH: /run/secrets/singtel-ca
+      MKTR_FREESWITCH_TLS_PEM_PATH: /run/secrets/freeswitch-agent
+      MKTR_FREESWITCH_BIND_IP: 172.29.80.4
+    networks:
+      telephony:
+        ipv4_address: 172.29.80.4
     volumes:
-      - ./telephony/freeswitch/singtel-external.xml:/etc/freeswitch/sip_profiles/external/singtel.xml:ro
-      - ./telephony/freeswitch/certs:/etc/freeswitch/tls:ro
-      - clip-data:/var/lib/freeswitch/recordings/mktr
+      - ./telephony/freeswitch/conf:/opt/mktr/freeswitch-conf:ro
+      - ${MKTR_SINGTEL_CA_CERT_PATH:-./telephony/freeswitch/certs/cafile.pem}:/run/secrets/singtel-ca:ro
+      - ${MKTR_FREESWITCH_TLS_PEM_PATH:-./telephony/freeswitch/certs/agent.pem}:/run/secrets/freeswitch-agent:ro
+      - clip-data:/var/lib/freeswitch/recordings/mktr:ro
+      - freeswitch-db:/var/lib/freeswitch/db
+    tmpfs:
+      - /etc/freeswitch:uid=1000,gid=1000,mode=0700
+      - /run/freeswitch:uid=1000,gid=1000,mode=0700
+      - /var/log/freeswitch:uid=1000,gid=1000,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+
+networks:
+  default: {}
+  telephony:
+    ipam:
+      config:
+        - subnet: 172.29.80.0/24
+  proxy:
+    ipam:
+      config:
+        - subnet: 172.29.81.0/24
 
 volumes:
   postgres-data:
@@ -110,9 +142,4 @@ volumes:
   clip-data:
   caddy-data:
   caddy-config:
-
-networks:
-  proxy:
-    ipam:
-      config:
-        - subnet: 172.29.81.0/24
+  freeswitch-db:

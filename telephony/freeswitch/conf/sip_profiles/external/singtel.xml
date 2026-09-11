@@ -1,0 +1,21 @@
+<include>
+  <gateway name="singtel">
+    <param name="username" value="@@MKTR_SINGTEL_SIP_USERNAME@@"/>
+    <param name="auth-username" value="@@MKTR_SINGTEL_SIP_USERNAME@@"/>
+    <param name="password" value="@@MKTR_SINGTEL_SIP_PASSWORD@@"/>
+    <param name="realm" value="@@MKTR_SINGTEL_SIP_HOST@@"/>
+    <param name="proxy" value="@@MKTR_SINGTEL_SIP_HOST@@:5061"/>
+    <param name="register-proxy" value="@@MKTR_SINGTEL_SIP_HOST@@:5061"/>
+    <param name="register" value="true"/>
+    <param name="register-transport" value="tls"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="expire-seconds" value="600"/>
+    <param name="retry-seconds" value="30"/>
+    <param name="ping" value="25"/>
+    <variables>
+      <variable name="absolute_codec_string" value="PCMA" direction="outbound"/>
+      <variable name="rtp_secure_media" value="true" direction="outbound"/>
+      <variable name="sip_dtmf_type" value="rfc2833" direction="outbound"/>
+    </variables>
+  </gateway>
+</include>

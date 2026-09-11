@@ -1,0 +1,37 @@
+<profile name="external">
+  <gateways><X-PRE-PROCESS cmd="include" data="external/*.xml"/></gateways>
+  <settings>
+    <param name="shutdown-on-fail" value="true"/>
+    <param name="sip-trace" value="no"/>
+    <param name="sip-capture" value="no"/>
+    <param name="sip-ip" value="$${mktr_bind_ip}"/>
+    <param name="rtp-ip" value="$${mktr_bind_ip}"/>
+    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+    <param name="sip-port" value="5080"/>
+    <param name="tls" value="$${external_ssl_enable}"/>
+    <param name="tls-only" value="true"/>
+    <param name="tls-bind-params" value="transport=tls"/>
+    <param name="tls-sip-port" value="5061"/>
+    <param name="tls-version" value="tlsv1.2,tlsv1.3"/>
+    <param name="tls-verify-date" value="true"/>
+    <param name="tls-verify-policy" value="out|subjects_out"/>
+    <param name="tls-verify-depth" value="4"/>
+    <param name="tls-cert-dir" value="/etc/freeswitch/tls"/>
+    <param name="inbound-codec-prefs" value="PCMA"/>
+    <param name="outbound-codec-prefs" value="PCMA"/>
+    <param name="inbound-codec-negotiation" value="greedy"/>
+    <param name="inbound-late-negotiation" value="true"/>
+    <param name="rtp-timer-name" value="soft"/>
+    <param name="rtp-timeout-sec" value="60"/>
+    <param name="rtp-hold-timeout-sec" value="180"/>
+    <param name="dtmf-type" value="rfc2833"/>
+    <param name="rfc2833-pt" value="101"/>
+    <param name="disable-register" value="true"/>
+    <param name="auth-calls" value="true"/>
+    <param name="enable-chat-api-proto" value="false"/>
+    <param name="context" value="public"/>
+    <param name="dialplan" value="XML"/>
+    <param name="manage-presence" value="false"/>
+  </settings>
+</profile>

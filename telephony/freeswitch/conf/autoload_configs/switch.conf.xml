@@ -1,0 +1,10 @@
+<configuration name="switch.conf" description="MKTR call and media limits">
+  <settings>
+    <param name="max-sessions" value="5"/>
+    <param name="sessions-per-second" value="5"/>
+    <param name="loglevel" value="notice"/>
+    <param name="rtp-start-port" value="10000"/>
+    <param name="rtp-end-port" value="10199"/>
+    <param name="core-db-name" value="/var/lib/freeswitch/db/core.db"/>
+  </settings>
+</configuration>

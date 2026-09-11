@@ -57,16 +57,14 @@ docker compose up --build
 
 This starts the API in simulator mode. Postgres and Redis are provisioned for the durable store and event bus migration; the current demo runtime uses the in-memory store so it can be run without migrations.
 
-## Enabling live SIP safely
+## Preparing the SIP gateway
 
-1. Copy the supplied CA certificate to `telephony/freeswitch/certs/CA_Certificate-2.pem` or set `MKTR_SINGTEL_CA_CERT_PATH` to its absolute path. Do not commit the certificate or SIP password.
-2. Render `telephony/freeswitch/singtel-external.xml.template` with the `sip69992409` username and the SIP password as `telephony/freeswitch/singtel-external.xml`. Keep the rendered file on the deployment host.
-3. Configure the FreeSWITCH external profile from `telephony/freeswitch/external-profile.xml.template`, allow TLS 1.2 or newer, and permit SRTP media UDP `10000-30000` to the Singtel media range `54.251.255.196-54.251.255.211`.
-4. Ask Singtel to whitelist the gateway's public IP. The supplied account-specific signaling IP is `52.77.0.62`; do not assume it is the deployment host's public IP.
-5. Set `MKTR_TELEPHONY_MODE=freeswitch`, `MKTR_SINGTEL_SIP_PASSWORD`, `MKTR_FREESWITCH_ESL_PASSWORD`, and a long `MKTR_MEDIA_GATEWAY_TOKEN` in the secret store, then start the live profile with `docker compose --profile live up -d`.
-6. Confirm the trunk panel reports “Gateway enabled” and test one approved caller ID. Never test with `+6562773210`.
+Only Shawn enables the gateway and makes the first live call, following `docs/runbook-first-live-call.md`. The API remains in simulator mode by default. `docs/freeswitch-deployment.md` describes the pinned FreeSWITCH source build with `mod_audio_stream`, complete TLS overlay, required secret files, private networking, and matching local RTP port range.
 
 The FreeSWITCH adapter now keeps a persistent authenticated ESL connection. Answer, hangup, background originate results, and playback completion drive the orchestrator; flow completion and errors explicitly terminate the provider channel. Reconnect never replays originate commands. A production media worker must still stream callee audio to the selected STT provider and call `POST /api/calls/:id/answered` and `POST /api/calls/:id/transcript` with `Authorization: Bearer $MKTR_MEDIA_GATEWAY_TOKEN`. The latter endpoint classifies the transcript, selects the matching flow route, and plays the matching clip. The flow editor, validation, caller-ID policy, five-call guard, and event contract are in place for that worker.
+`npm run render:freeswitch -- --dry-run` validates the XML templates with dummy inputs and makes no network connection. `npm run render:freeswitch` renders operator-supplied values and the TLS files to the ignored `runtime/freeswitch/conf/` directory with private permissions. The optional gateway container runs the same renderer at start, so missing inputs fail before FreeSWITCH starts. Rendered XML, SIP/ESL passwords, and TLS material must never be committed.
+
+Gateway registration, TLS 5061, and actual audio transport remain operator checks. Configuration and fake-adapter tests do not prove a live trunk works.
 
 ## Singtel values in this workspace
 

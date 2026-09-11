@@ -1,0 +1,13 @@
+<configuration name="logfile.conf" description="Local rotating diagnostics">
+  <settings><param name="rotate-on-hup" value="true"/></settings>
+  <profiles>
+    <profile name="default">
+      <settings>
+        <param name="logfile" value="/var/log/freeswitch/freeswitch.log"/>
+        <param name="rollover" value="10485760"/>
+        <param name="maximum-rotate" value="5"/>
+      </settings>
+      <mappings><map name="all" value="notice,warning,err,crit,alert"/></mappings>
+    </profile>
+  </profiles>
+</configuration>

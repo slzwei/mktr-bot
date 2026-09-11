@@ -1,0 +1,33 @@
+# FreeSWITCH deployment inputs and build
+
+This is operator deployment documentation. The agent has not started FreeSWITCH, registered the gateway, or placed a call. The agent can render dummy configuration with `npm run render:freeswitch -- --dry-run` without credentials or network access. Follow `docs/runbook-first-live-call.md` for the later operator gates.
+
+The optional gateway is built from `telephony/freeswitch/Dockerfile`. It compiles a small module set, including `mod_audio_stream` with TLS support, from public pinned source revisions. This replaces the unverified `signalwire/freeswitch:1.10.12` image; no paid/private package repository is needed. Source revision existence was checked against GitHub on 2026-09-11; the container build remains unverified here because Docker is not installed on host.
+
+| Component | Pinned revision |
+| --- | --- |
+| FreeSWITCH v1.11.3 | `ef32e205295e29f034f1453ad245ba5efb07b94a` |
+| sofia-sip | `ad36ac8f755308e8b87f98a505e83d4e408e5cc3` |
+| spandsp | `8f1e1646bdec99eac5fd2cd92c35563f736b9b89` |
+| mod_audio_stream | `5eb685ed9b179ce259946307a58cb6d65eadf783` |
+
+After installing Docker on the Linux gateway, Shawn builds with `docker build -f telephony/freeswitch/Dockerfile -t mktr-freeswitch:1.11.3 .`. The Docker build checks for missing shared libraries and the audio-stream module. A real host must additionally verify `module_exists mod_audio_stream`, `sofia status gateway singtel`, and `sofia status profile external` through the private ESL diagnostics described below. Only Shawn starts the gateway; the API remains in simulator mode until the runbook says to change it.
+
+`telephony/freeswitch/conf/` is a complete minimal overlay, mounted at `/opt/mktr/freeswitch-conf` and rendered on container entry into `/etc/freeswitch`. There are no demo extensions, default directory passwords, internal SIP listeners, or automatic inbound call routes. The startup renderer requires the SIP password and TLS inputs and fails before starting FreeSWITCH if an input is missing. It never prints credential-bearing XML. For review on the deployment host, `npm run render:freeswitch` renders the same files under the Git-ignored `runtime/freeswitch/conf/`, with mode 0700 directories and 0600 files. Runtime output must never be added to Git or copied into an image.
+
+Provide the following deployment secrets/inputs through the operator's protected environment and secret files:
+
+- `MKTR_GATEWAY_PUBLIC_IP`: the public static IPv4 address confirmed whitelisted by Singtel; the account signaling IP is not the gateway public IP.
+- `MKTR_SINGTEL_SIP_USERNAME`, `MKTR_SINGTEL_SIP_PASSWORD`: the Singtel account and its password. The username defaults to the supplied account. The password is escaped for XML; control characters and FreeSWITCH variable expansions are rejected.
+- `MKTR_SINGTEL_CA_CERT_PATH`: the supplied Singtel trust bundle. The renderer checks its PEM syntax and installs it as `/etc/freeswitch/tls/cafile.pem`.
+- `MKTR_FREESWITCH_TLS_PEM_PATH`: a TLS identity PEM containing the gateway certificate and matching unencrypted private key. This is separate from the Singtel CA. Obtain or generate this on the production host and confirm whether Singtel requires a particular client certificate. The renderer checks key/certificate matching and installs it as `/etc/freeswitch/tls/agent.pem`.
+
+The external profile binds TLS only on 5061, requires TLS 1.2/1.3, verifies the outgoing certificate chain, date, and subject, and advertises `MKTR_GATEWAY_PUBLIC_IP` for SIP and RTP. `tls-verify-policy=out|subjects_out` preserves verification for the outbound registration and calls. Inbound routing and its peer ACL are handled by C5. Never relax verification to fix a registration error; inspect the CA, hostname, date, and Singtel's certificate requirements.
+
+The local RTP/RTCP slice is UDP **10000–10199**, identical in `switch.conf.xml` and the compose mapping. Two hundred ports leave ample room for five calls and their RTCP ports while avoiding a 20,001-port Docker mapping. Singtel's **remote** destination/source media ports remain UDP 10000–30000 and its supplied media IPs remain 54.251.255.196–54.251.255.211. Shawn configures the host/provider firewall for the supplied signaling endpoint and these remote media sources, and verifies the bridge's published UDP mapping does not rewrite the advertised port. Do not expose any SIP UDP port. PCMA, RFC2833, and mandatory SRTP are applied using real Sofia profile settings and outbound channel variables; gateway `rtp_secure_media` is a channel variable, not an ignored hyphenated gateway parameter.
+
+The telephony bridge is `172.29.80.0/24`: API `.2`, worker `.3`, gateway `.4`. The gateway binds its SIP/RTP interface to `.4`, rather than advertising Docker's dynamic private address. If this subnet conflicts with the host, change the compose subnet and all three static service addresses together, and provide the matching renderer bind and ACL inputs. The public advertised address remains separate.
+
+For media the adapter sets channel variable `STREAM_EXTRA_HEADERS` to a JSON object containing `Authorization: Bearer ...`, then starts `uuid_audio_stream <uuid> start ws://media-worker:8090/... mono 8k`. The module reads the channel's receive audio and sends native 16-bit PCM; Linux amd64/arm64 are little-endian. The worker receives callee audio from this outbound parked channel, not prompt playback. Only a listening window may start the stream; the orchestrator closes it before routing/playback. The bearer token must never be placed in the URL or logged with command contents. Module disconnect/error events require application handling; upstream libwsc does not reconnect automatically.
+
+Primary sources reviewed: [FreeSWITCH v1.11.3 security release](https://github.com/signalwire/freeswitch/releases/tag/v1.11.3), [Sofia external profile parameters](https://github.com/signalwire/freeswitch/blob/v1.11.3/conf/vanilla/sip_profiles/external.xml), [Sofia's gateway variable and TLS parsing](https://github.com/signalwire/freeswitch/blob/v1.11.3/src/mod/endpoints/mod_sofia/sofia.c), [source build dependencies](https://github.com/signalwire/freeswitch/blob/v1.11.3/configure.ac), and [mod_audio_stream API and extra headers](https://github.com/amigniter/mod_audio_stream/tree/5eb685ed9b179ce259946307a58cb6d65eadf783).

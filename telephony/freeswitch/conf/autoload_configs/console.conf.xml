@@ -1,0 +1,4 @@
+<configuration name="console.conf" description="Container stdout">
+  <mappings><map name="all" value="notice,warning,err,crit,alert"/></mappings>
+  <settings><param name="colorize" value="false"/></settings>
+</configuration>

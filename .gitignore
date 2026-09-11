@@ -10,3 +10,9 @@ storage
 telephony/freeswitch/certs/*.pem
 telephony/freeswitch/singtel-external.xml
 .DS_Store
+
+# Rendered gateway XML and TLS material contain secrets.
+runtime/
+telephony/freeswitch/certs/*
+!telephony/freeswitch/certs/.gitkeep
+!telephony/freeswitch/certs/README.md
