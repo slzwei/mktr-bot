@@ -43,10 +43,34 @@ test("Deepgram final latency follows the word end across silence and includes bu
   fake.peer().send(JSON.stringify({ type: "Metadata", transaction_key: "deprecated", request_id: "req-1", sha256: "x", created: "2026-09-11T00:00:00Z", duration: 0, channels: 1 }));
   fake.peer().send(JSON.stringify({ type: "SpeechStarted", channel: [0, 1], timestamp: 0.01 }));
   fake.peer().send(JSON.stringify(final("can lah", 0.02)));
-  fake.peer().send(JSON.stringify(final("duplicate after end", 0.02)));
+  // Deepgram repeating the same final segment must not produce a second reply.
+  fake.peer().send(JSON.stringify(final("can lah", 0.02)));
   fake.peer().send(JSON.stringify({ type: "UtteranceEnd", channel: [0, 1], last_word_end: 0.02 }));
   await waitFor(() => utterances.length === 1);
+  await new Promise((resolve) => setTimeout(resolve, 30));
   assert.deepEqual(utterances, [{ transcript: "can lah", latencyMs: 850, finalizedBy: "endpoint" }]);
+});
+
+test("one connection serves every listen window in a call and reports speech before each transcript", async (t) => {
+  const fake = await upstream(t);
+  const utterances: Utterance[] = []; const events: string[] = [];
+  const provider = new DeepgramSpeechToText({ apiKey: "fake-provider-key", endpoint: fake.endpoint });
+  const stream = await provider.open({
+    onUtterance: (value) => { utterances.push(value); events.push(`utterance:${value.transcript}`); },
+    onError: (error) => assert.fail(error.message),
+    onSpeechStarted: () => events.push("speaking")
+  });
+  t.after(() => stream.close());
+  // First window: an interim result, then the final. Speech is reported before the transcript.
+  fake.peer().send(JSON.stringify({ type: "Results", is_final: false, speech_final: false, start: 0, duration: 1, channel: { alternatives: [{ transcript: "ye" }] } }));
+  fake.peer().send(JSON.stringify(final("can lah", 0.02)));
+  await waitFor(() => utterances.length === 1);
+  // Second window on the same connection: the old build latched after one utterance and went deaf.
+  fake.peer().send(JSON.stringify({ type: "Results", is_final: false, speech_final: false, start: 4, duration: 1, channel: { alternatives: [{ transcript: "no" }] } }));
+  fake.peer().send(JSON.stringify({ type: "Results", is_final: true, speech_final: true, start: 4, duration: 1, channel: { alternatives: [{ transcript: "no need" }] } }));
+  await waitFor(() => utterances.length === 2);
+  assert.deepEqual(utterances.map((u) => u.transcript), ["can lah", "no need"]);
+  assert.deepEqual(events, ["speaking", "utterance:can lah", "speaking", "utterance:no need"]);
 });
 
 for (const wordEnd of [undefined, 300]) test(`Deepgram omits latency for ${wordEnd === undefined ? "missing" : "inconsistent"} word timing`, async (t) => {

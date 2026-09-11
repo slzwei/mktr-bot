@@ -12,6 +12,10 @@ Transcript delivery uses one generated `utteranceId` across at most three attemp
 
 A listen window is a logical gate, not a connection. The orchestrator opens one on the worker with `POST /calls/<callId>/window/<windowId>?endpointingMs=<n>` when it enters a listen node and closes it with `DELETE` on the same path when it leaves; both use the media gateway bearer token over the private network. The worker submits at most one transcript per window, naming that window in the receipt, and the API's own `listenWindowId` and status guard refuse anything that arrives for a window it is no longer waiting on.
 
+One provider connection serves every listen window in a call, so its utterance state resets when new words arrive rather than latching after the first reply. A repeated final segment is still ignored for the life of the connection.
+
+As soon as the provider reports recognizable words, the worker tells the API with `POST /api/media/calls/:id/speaking` once per window. A listen node's no-speech timeout exists to catch silence, and a caller who is mid-sentence is not silent, so the API replaces that timeout with a single bounded wait for the finished transcript. Words are used as the signal rather than voice activity, which fires on line noise. Losing the notice only means the window keeps its original timeout.
+
 Speech the provider finalizes while no window is open is discarded without an API request. That is speech from clip playback or the tail of the previous turn, and it answers a prompt that has already been routed.
 
 Audio is forwarded to the provider continuously, including during clip playback, because [Deepgram warns that gating audio through a voice activity detector harms accuracy](https://developers.deepgram.com/docs/understand-endpointing-interim-results): the silence between words is context the model uses. Only the read (callee) leg is streamed, so MKTR's own clips are never sent. The cost of this is provider minutes: a call bills for its whole answered duration rather than for its listen windows alone.

@@ -46,6 +46,8 @@ type CallEntry = {
   audio?: AudioSession;
   /** Abandons an upgrade whose call lookup is still in flight; set only while one is. */
   connecting?: () => void;
+  /** The window a speech-start notice has already been sent for, so each window reports once. */
+  speakingReportedFor?: string;
   /** Transcript receipts still being delivered; the reservation outlives the audio until they settle. */
   receipts: number;
   lifetime: NodeJS.Timeout;
@@ -299,6 +301,17 @@ export function createMediaWorker(options: WorkerOptions) {
       }).finally(() => { entry.receipts -= 1; release(entry); });
     };
 
+    /** Tells the API the caller is talking so a listen node's silence timeout stops running. */
+    const speechStarted = () => {
+      const window = entry.window;
+      if (closed || !window || entry.speakingReportedFor === window.id || stopping) return;
+      entry.speakingReportedFor = window.id;
+      void post(`/api/media/calls/${callId}/speaking`, { windowId: window.id })
+        .then((status) => { if ((status < 200 || status >= 300) && status !== 409) throw new Error(`Speech notice returned HTTP ${status}.`); })
+        // Losing this only means the window keeps its original silence timeout.
+        .catch((failure: unknown) => { if (!stopping) report(failure, callId, window.id); });
+    };
+
     const utterance = (value: Utterance) => {
       if (closed) return;
       const parsed = utteranceSchema.safeParse(value);
@@ -330,7 +343,8 @@ export function createMediaWorker(options: WorkerOptions) {
       connectionDeadline.unref();
       const callbacks = {
         onUtterance: (value: Utterance) => { if (owner === attempt) utterance(value); },
-        onError: (error: Error) => { if (owner === attempt) providerFailed(error); }
+        onError: (error: Error) => { if (owner === attempt) providerFailed(error); },
+        onSpeechStarted: () => { if (owner === attempt) speechStarted(); }
       };
       void Promise.resolve().then(() => options.stt.open(callbacks, attempt.signal, listen)).then((opened) => {
         if (closed || opening !== attempt) { closeProvider(opened); return; }

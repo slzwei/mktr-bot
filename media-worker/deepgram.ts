@@ -78,7 +78,10 @@ export class DeepgramSpeechToText implements SpeechToText {
     const now = this.options.now ?? (() => performance.now());
     let closed = false;
     let opened = false;
+    // Per-utterance state. One connection serves every listen window in a call, so this resets
+    // when new speech arrives; latching it would leave the socket open but deaf after turn one.
     let completed = false;
+    let speaking = false;
     let pieces: string[] = [];
     const seen = new Set<string>();
     let audioOriginAt: number | undefined;
@@ -124,14 +127,23 @@ export class DeepgramSpeechToText implements SpeechToText {
       callbacks.onUtterance({ transcript, finalizedBy, ...(latencyMs !== undefined ? { latencyMs } : {}) });
     };
     socket.on("message", (data) => {
-      if (closed || completed) return;
+      if (closed) return;
       try {
         const result = resultSchema.parse(JSON.parse(data.toString()));
         if (result.type === "Results") {
           const alternative = Array.isArray(result.channel) ? undefined : result.channel?.alternatives[0];
           const transcript = alternative?.transcript.trim();
           const key = `${result.start}:${result.duration}:${transcript}`;
-          if (result.is_final && transcript && !seen.has(key)) {
+          // `seen` spans the connection, so a repeated final segment is still ignored after the
+          // utterance it belonged to was emitted. Only genuinely new words open the next utterance
+          // and report speech; words are a stronger signal than voice activity, which fires on noise.
+          const fresh = Boolean(transcript) && !seen.has(key);
+          if (fresh) {
+            if (completed) { completed = false; pieces = []; lastWordEnd = undefined; speaking = false; }
+            if (!speaking) { speaking = true; callbacks.onSpeechStarted?.(); }
+          }
+          if (result.is_final && transcript && fresh) {
+            if (seen.size >= 512) seen.delete(seen.values().next().value!);
             seen.add(key);
             pieces.push(transcript);
             if (pieces.join(" ").length > 2000) { fail(new Error("Deepgram utterance exceeded the transcript limit.")); return; }

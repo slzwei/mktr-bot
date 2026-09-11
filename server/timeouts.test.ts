@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { FlowDefinition } from "../src/lib/domain.js";
+import { randomUUID } from "node:crypto";
+import { CALLER_IDS, type FlowDefinition } from "../src/lib/domain.js";
 import { FixtureCallOrchestrator as CallOrchestrator } from "./test-support/fixture-orchestrator.js";
+import { RuleClassifier } from "./classifier.js";
 import { InMemoryStore } from "./store.js";
 import { validateFlow } from "./flow-validation.js";
 import { boundedInteger } from "./config.js";
 import { EslClient } from "./esl.js";
-import { FreeSwitchEslAdapter, type TelephonyAdapter, type TelephonyEvent } from "./telephony.js";
+import { FreeSwitchEslAdapter, SimulatedTelephonyAdapter, type TelephonyAdapter, type TelephonyEvent } from "./telephony.js";
 import { FakeEslServer, fixtureEslPassword, waitFor } from "./test-support/fake-esl.js";
 
 function fixture(retry = false) {
@@ -78,4 +80,33 @@ test("ESL originate carries provider-owned answer and duration deadlines; trunk 
   const originate = fake.commands.find((command) => command.startsWith("bgapi originate"))!;
   assert.match(originate, /originate_timeout=30/); assert.match(originate, /execute_on_answer='sched_hangup \+180 ALLOTTED_TIMEOUT'/);
   for (const value of ["0", "6", "NaN", "2.5", "5bad"]) assert.throws(() => boundedInteger(value, 5, 1, 5));
+});
+
+test("a caller heard speaking keeps the listen window open past its silence timeout", async (t) => {
+  const store = new InMemoryStore();
+  store.saveFlow({ id: "speaks", name: "Speaks", version: 1, status: "published", updatedAt: new Date().toISOString(), startNodeId: "start", nodes: [
+    { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "Start" } },
+    { id: "listen", type: "listen", position: { x: 1, y: 0 }, data: { label: "Listen", noSpeechTimeoutMs: 60 } },
+    { id: "end", type: "end", position: { x: 2, y: 0 }, data: { label: "End" } }
+  ], edges: [{ id: "a", source: "start", target: "listen" }, { id: "b", source: "listen", target: "end", condition: { fallback: true } }] });
+  const calls = new CallOrchestrator(store, new SimulatedTelephonyAdapter(), new RuleClassifier(), () => 0);
+  const call = await calls.start({ destination: "+6591234567", callerId: CALLER_IDS[0], flowId: "speaks" });
+  await calls.markAnswered(call.id);
+  await waitFor(() => calls.get(call.id)?.status === "listening");
+  const windowId = calls.get(call.id)!.listenWindowId!;
+
+  // The caller starts talking well inside the 60 ms silence budget.
+  await calls.speechStarted(call.id, windowId);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(calls.get(call.id)?.status, "listening", "silence timeout must not fire on someone mid-sentence");
+  assert.equal(calls.get(call.id)?.listenWindowId, windowId);
+
+  // The reply that used to be discarded is now accepted.
+  await calls.submitTranscript(call.id, "I don't know. What is this about?", { windowId, utteranceId: randomUUID() });
+  await waitFor(() => calls.get(call.id)?.status === "ended");
+  assert.ok(calls.get(call.id)!.events.some((event) => event.type === "transcript_final"));
+
+  // A notice for a window that already closed changes nothing.
+  const after = await calls.speechStarted(call.id, windowId);
+  assert.equal(after.status, "ended");
 });

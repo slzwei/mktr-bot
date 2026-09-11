@@ -43,6 +43,11 @@ export type FlowNode = {
  *  The ceiling matches Deepgram's 1000 ms UtteranceEnd fallback, which must not run ahead of the endpoint. */
 export const LISTEN_ENDPOINTING = { defaultMs: 300, minMs: 100, maxMs: 1000 } as const;
 
+/** Once the caller is heard saying words, silence is no longer the right thing to time, so the
+ *  listen node's no-speech timeout is replaced by this one-shot wait for the finished transcript.
+ *  One shot, so a noisy line cannot hold a window open indefinitely. */
+export const LISTEN_SPEAKING_GRACE_MS = 12_000;
+
 export type BranchCondition = {
   intent?: string;
   sentiment?: "positive" | "neutral" | "negative" | "uncertain";

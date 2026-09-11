@@ -14,7 +14,7 @@ import type {
   FlowNode,
   TestCallInput
 } from "../src/lib/domain.js";
-import { ACTIVE_CALL_STATUSES, SCENARIOS } from "../src/lib/domain.js";
+import { ACTIVE_CALL_STATUSES, LISTEN_SPEAKING_GRACE_MS, SCENARIOS } from "../src/lib/domain.js";
 import { createTranscriptClassifier, type TranscriptClassifier } from "./classifier.js";
 import { config } from "./config.js";
 import { flowListens, listenEndpointingMs } from "./listen-window.js";
@@ -55,6 +55,8 @@ export class CallOrchestrator {
   private readonly terminations = new Map<string, Promise<CallSession>>();
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly listenTimers = new Map<string, NodeJS.Timeout>();
+  // The window a speech-start notice already extended, so a talkative line extends it only once.
+  private readonly speakingWindows = new Map<string, string>();
   // A turn opens when an accepted transcript receipt carries speech-end timing and closes when the reply clip command completes.
   private readonly turns = new Map<string, { speechEndedAt: number; provider: string; finalizedBy?: string }>();
   private readonly unsubscribeAdapter?: () => void;
@@ -296,6 +298,29 @@ export class CallOrchestrator {
     return this.enqueue(id, () => this.classifyTranscript(id, transcript, receipt, receivedAt));
   }
 
+  /**
+   * The media gateway heard the caller saying words. A listen node's timeout is meant to catch
+   * silence, so it must not fire on someone who is mid-sentence: it is replaced by a single
+   * bounded wait for the finished transcript.
+   */
+  async speechStarted(id: string, windowId: string): Promise<CallSession> {
+    const session = this.store.getCall(id);
+    if (!session) throw new Error("Call not found.");
+    if (session.status !== "listening" || session.listenWindowId !== windowId || this.terminations.has(id)) return session;
+    if (this.speakingWindows.get(id) === windowId) return session;
+    this.speakingWindows.set(id, windowId);
+    this.clearListenTimer(id);
+    const timer = setTimeout(() => {
+      void this.enqueue(id, () => this.noSpeech(id, windowId)).catch((error: unknown) => {
+        logger.error({ callId: id, err: error }, "No-speech routing failed");
+      });
+    }, LISTEN_SPEAKING_GRACE_MS);
+    timer.unref();
+    this.listenTimers.set(id, timer);
+    logger.info({ callId: id, windowId, graceMs: LISTEN_SPEAKING_GRACE_MS }, "Caller is speaking; silence timeout replaced");
+    return session;
+  }
+
   async mediaError(id: string, windowId: string): Promise<CallSession> {
     const session = this.store.getCall(id);
     if (!session) throw new Error("Call not found.");
@@ -472,6 +497,7 @@ export class CallOrchestrator {
 
   private async enterListening(session: CallSession, node: FlowNode) {
     this.turns.delete(session.id);
+    this.speakingWindows.delete(session.id);
     // Both node settings are read before the window exists so a rejected value opens nothing.
     const endpointingMs = listenEndpointingMs(node);
     const timeout = node.data.noSpeechTimeoutMs ?? 6000;
@@ -790,6 +816,7 @@ export class CallOrchestrator {
   }
 
   private cleanupRuntimeState(callId: string) {
+    this.speakingWindows.delete(callId);
     this.terminationReasons.delete(callId);
     this.turns.delete(callId);
     this.playbacks.delete(callId);

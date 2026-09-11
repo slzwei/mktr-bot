@@ -19,7 +19,13 @@ export function CallReview({ call, transcript, summary, flows }: { call: CallSes
       <div><dt>Caller ID</dt><dd className="numeric">{call.callerId}</dd></div>
       <div className="call-review-end"><dt>End reason</dt><dd>{call.endReason || "No end reason recorded"}</dd></div>
     </dl>
-    <div className="call-review-recording">{recording ? <a className="secondary-button" href={`/api/calls/${encodeURIComponent(call.id)}/recording`} download><Download size={15} /> Download recording</a> : <span>No recording available</span>}{recording && call.recordingExpiresAt && <small>Available until {singaporeDateTime(call.recordingExpiresAt)} SGT</small>}</div>
+    <div className="call-review-recording">
+      {recording ? <>
+        <audio className="call-recording-audio" aria-label={`Recording of the call to ${summary?.contactName || call.destination}`} controls preload="metadata" src={`/api/calls/${encodeURIComponent(call.id)}/recording`} onPlay={(event) => { document.querySelectorAll("audio").forEach((audio) => { if (audio !== event.currentTarget) audio.pause(); }); }} />
+        <a className="secondary-button" href={`/api/calls/${encodeURIComponent(call.id)}/recording`} download={`${call.id}.wav`}><Download size={15} /> Download</a>
+      </> : <span>{["ended", "failed"].includes(call.status) ? "No recording available" : "Recording becomes available when the call ends"}</span>}
+      {recording && call.recordingExpiresAt && <small>Available until {singaporeDateTime(call.recordingExpiresAt)} SGT</small>}
+    </div>
     <section className="conversation" aria-labelledby="conversation-heading"><header><h3 id="conversation-heading">Conversation</h3><span>{turns.length} {turns.length === 1 ? "turn" : "turns"}</span></header>
       {turns.length === 0 ? <EmptyState title="No conversation">No agent or caller turns were captured for this call. This is normal for an unanswered call.</EmptyState> : <ol className="transcript-turns" aria-label="Conversation transcript">{turns.map((turn, index) => {
         const Icon = turn.role === "agent" ? Bot : UserRound;

@@ -42,7 +42,7 @@ export type AppDependencies = {
   store: Store;
   adapter: TelephonyAdapter;
   classifier: TranscriptClassifier;
-  calls: Pick<CallOrchestrator, "activeCallCount" | "start" | "get" | "stop" | "markAnswered" | "submitTranscript" | "subscribe"> & Partial<Pick<CallOrchestrator, "mediaError">>;
+  calls: Pick<CallOrchestrator, "activeCallCount" | "start" | "get" | "stop" | "markAnswered" | "submitTranscript" | "subscribe"> & Partial<Pick<CallOrchestrator, "mediaError" | "speechStarted">>;
   authStore: AuthStore;
   webOrigin?: string;
   mediaGatewayToken?: string;
@@ -118,6 +118,11 @@ export function createApp(dependencies: AppDependencies) {
     // The worker opens its provider socket with the listen node's own endpointing, so it is resolved here per window.
     return response.json(listenWindow(call, store.getFlowVersion(call.flowId, call.flowVersion)));
   });
+  app.post("/api/media/calls/:id/speaking", mediaOnly, async (request, response) => {
+    const body = z.object({ windowId: z.string().uuid() }).strict().parse(request.body);
+    if (!calls.speechStarted) return response.status(503).json({ error: "Speech notices unavailable." });
+    return response.json(await calls.speechStarted(z.string().parse(request.params.id), body.windowId));
+  });
   app.post("/api/media/calls/:id/error", mediaOnly, async (request, response) => {
     const body = z.object({ windowId: z.string().uuid(), error: z.literal("Speech transcription unavailable.") }).strict().parse(request.body);
     if (!calls.mediaError) return response.status(503).json({ error: "Media error handling unavailable." });
@@ -176,7 +181,11 @@ export function createApp(dependencies: AppDependencies) {
     try { if (!(await stat(location)).isFile()) throw new HttpError(404, "Recording file is unavailable."); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new HttpError(404, "Recording file is unavailable."); throw error; }
     response.setHeader("Cache-Control", "no-store");
-    return response.download(location, filename);
+    // Inline with byte ranges so the operator can play and scrub the call in the browser.
+    // sendFile sets Accept-Ranges; a download is still forced by the link's download attribute.
+    response.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    response.type("audio/wav");
+    return response.sendFile(location, { acceptRanges: true, cacheControl: false });
   });
   app.get("/api/contacts", (_request, response) => response.json(store.listContacts()));
   app.post("/api/contacts/preview", async (request, response) => {
