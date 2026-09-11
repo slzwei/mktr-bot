@@ -72,6 +72,8 @@ Gateway registration, TLS 5061, and actual audio transport remain operator check
 
 `GET /api/health` returns HTTP 200 with `gateway: "n/a"` in simulator mode. Gateway readiness requires a connected ESL session and an exact Singtel `REGED` state; failures return 503. Compose probes the API, and pino JSON logs correlate request IDs with call IDs. Aggregate Prometheus metrics are available at the local API's `/metrics` path; Caddy hides that path from the public origin. `docs/alerting.md` documents the metrics and responses to gateway registration loss and call failures.
 
+Classification defaults to the Singapore English rules provider. Selecting `MKTR_CLASSIFIER_MODE=openai` requires an API key and uses `MKTR_OPENAI_CLASSIFIER_MODEL`; `MKTR_CLASSIFIER_TIMEOUT_MS` defaults to 1500 ms with an observable rules fallback. `docs/classifier.md` explains the rule precedence and fake-provider verification.
+
 ## Singtel values in this workspace
 
 | Setting | Value |

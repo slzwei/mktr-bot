@@ -1,0 +1,358 @@
+[
+  {
+    "transcript": "can",
+    "intent": "interested"
+  },
+  {
+    "transcript": "can lah",
+    "intent": "interested"
+  },
+  {
+    "transcript": "ok can",
+    "intent": "interested"
+  },
+  {
+    "transcript": "CAN LAH!",
+    "intent": "interested"
+  },
+  {
+    "transcript": "okay can",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Can lor",
+    "intent": "interested"
+  },
+  {
+    "transcript": "yes",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Yes please",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Sure",
+    "intent": "interested"
+  },
+  {
+    "transcript": "okay",
+    "intent": "interested"
+  },
+  {
+    "transcript": "ok",
+    "intent": "interested"
+  },
+  {
+    "transcript": "I'm interested",
+    "intent": "interested"
+  },
+  {
+    "transcript": "I am interested to hear more",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Tell me more",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Sounds good",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Go ahead",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Carry on",
+    "intent": "interested"
+  },
+  {
+    "transcript": "I can listen",
+    "intent": "interested"
+  },
+  {
+    "transcript": "I can talk now",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Yes, tell me more please",
+    "intent": "interested"
+  },
+  {
+    "transcript": "OK CAN LAH",
+    "intent": "interested"
+  },
+  {
+    "transcript": "later",
+    "intent": "callback"
+  },
+  {
+    "transcript": "not free",
+    "intent": "callback"
+  },
+  {
+    "transcript": "busy now",
+    "intent": "callback"
+  },
+  {
+    "transcript": "Busy",
+    "intent": "callback"
+  },
+  {
+    "transcript": "no, call me later",
+    "intent": "callback"
+  },
+  {
+    "transcript": "No call me later please",
+    "intent": "callback"
+  },
+  {
+    "transcript": "call me back",
+    "intent": "callback"
+  },
+  {
+    "transcript": "Could you call me back tomorrow afternoon?",
+    "intent": "callback"
+  },
+  {
+    "transcript": "phone me tomorrow",
+    "intent": "callback"
+  },
+  {
+    "transcript": "Ring me next week",
+    "intent": "callback"
+  },
+  {
+    "transcript": "Please contact me another time",
+    "intent": "callback"
+  },
+  {
+    "transcript": "I'm in a meeting",
+    "intent": "callback"
+  },
+  {
+    "transcript": "I'm at work",
+    "intent": "callback"
+  },
+  {
+    "transcript": "I'm driving now",
+    "intent": "callback"
+  },
+  {
+    "transcript": "not now",
+    "intent": "callback"
+  },
+  {
+    "transcript": "another time please",
+    "intent": "callback"
+  },
+  {
+    "transcript": "later lah",
+    "intent": "callback"
+  },
+  {
+    "transcript": "I'm not free now",
+    "intent": "callback"
+  },
+  {
+    "transcript": "Call me after lunch",
+    "intent": "callback"
+  },
+  {
+    "transcript": "Can you call tonight?",
+    "intent": "callback"
+  },
+  {
+    "transcript": "I'm not sure, call tomorrow",
+    "intent": "callback"
+  },
+  {
+    "transcript": "no need",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "don't want",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "don't call me back",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Do not call me back",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "don't call me later",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Never call again",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Stop calling me",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Please remove me from your list",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Take me off your list",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Delete my number",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "No thanks",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "No thank you",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "not interested",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "I'm not keen",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "No interest",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Not for me",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "No",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "nope",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "cannot",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Yes but I don't want this",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "no, thank you",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "don't phone tomorrow",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "not okay",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Don't want lah",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "I am not interested, call me later",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "maybe",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "not sure",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "don't know",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "do not know",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "dunno",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "Can you say that again?",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "Please repeat",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "I cannot hear you",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "I can't hear you",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "Who is this?",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "What is this about?",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "hello",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "hmm",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "Sorry?",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "The line is noisy",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "Can you speak louder?",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "I didn't catch that",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "I am unsure",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "Maybe I'm interested",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "...",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "The number sounds familiar",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "I'm not interested and I can't hear you",
+    "intent": "not_interested"
+  }
+]

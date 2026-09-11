@@ -14,6 +14,13 @@ export function boundedInteger(value: string | undefined, fallback: number, min:
   return number;
 }
 
+export function classifierTimeoutFromEnvironment(environment: Record<string, string | undefined>): number {
+  const value = environment.MKTR_CLASSIFIER_TIMEOUT_MS;
+  if (!value) return 1500;
+  if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 30_000) throw new Error("MKTR_CLASSIFIER_TIMEOUT_MS must be an integer between 1 and 30000.");
+  return Number(value);
+}
+
 export const config = {
   port: int(process.env.PORT, 8787),
   webOrigin: process.env.MKTR_WEB_ORIGIN || "http://localhost:5173",
@@ -26,11 +33,12 @@ export const config = {
   maxCallSeconds: boundedInteger(process.env.MKTR_MAX_CALL_SECONDS, 180, 1, 1800),
   clipStorageDir: process.env.MKTR_CLIP_STORAGE_DIR ?? path.join(process.cwd(), "storage", "clips"),
   classifier: {
-    mode: process.env.MKTR_CLASSIFIER_MODE === "openai" && Boolean(process.env.OPENAI_API_KEY)
+    mode: process.env.MKTR_CLASSIFIER_MODE === "openai"
       ? "openai"
       : "rules" as ClassifierMode,
     openaiApiKey: process.env.OPENAI_API_KEY ?? "",
-    openaiModel: process.env.MKTR_OPENAI_CLASSIFIER_MODEL ?? "gpt-4o-mini"
+    openaiModel: process.env.MKTR_OPENAI_CLASSIFIER_MODEL || "gpt-4o-mini",
+    timeoutMs: classifierTimeoutFromEnvironment(process.env)
   },
   mediaGateway: {
     workerUrl: process.env.MKTR_MEDIA_WORKER_URL ?? "ws://media-worker:8090",

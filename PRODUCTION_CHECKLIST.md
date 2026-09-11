@@ -89,8 +89,8 @@ Done when: pino structured logs carry a request id and call id. The error handle
 Verify: `curl /api/health` in simulator returns 200 with `gateway: "n/a"`. A health test with a fake ESL returning `NOREG` returns 503.
 
 ### B3. Classifier hardening
-Status: todo
-Evidence: 2026-09-11 RuleClassifier probes return `unknown` for "can", "can lah", "ok can", "later", and "not free", and incorrectly return `callback` for "don't call me back". `server/classifier.ts:41` has no configured abort deadline and fallback has no metric; model selection already comes from env. The 60-transcript fixture and hanging-provider timeout tests are absent, so neither required verification passes.
+Status: done
+Evidence: `npm run test:classifier` passes 6/6: all 89 distinct fixtures match (including both amended negation cases), the actual SDK against a hanging fake HTTP provider returns rules in approximately 1.51 s with one request and a timeout counter, and cancellation-ignoring/invalid/error providers fall back once; classifier latency and configured model propagation are verified. Build and full unit suite pass. `server/classifier.ts` uses the env-backed 1500 ms default AbortSignal deadline and zero retries; `docs/classifier.md` records behavior. No external OpenAI request or live-mode check was made.
 Why: The OpenAI call has no timeout, so a slow API leaves the callee in silence. The rules are English-only and order-sensitive.
 Done when: The OpenAI classify call uses `AbortSignal.timeout(MKTR_CLASSIFIER_TIMEOUT_MS)` (default 1500) with rules fallback and a fallback counter in metrics. Rules cover Singapore English ("can", "can lah", "ok can", "later", "no need", "don't want", "not free", "busy now") with negation handled before the positive match, so "don't call me back" and "no, call me later" are `not_interested` and `callback` respectively. A fixture file of at least 60 transcripts with expected intents drives a unit test, including the audit's misclassified cases. The model id comes from env.
 Verify: The classifier fixture test passes at 100 percent on rules. A timeout test with a hanging fake provider returns the rules result within 2 s.

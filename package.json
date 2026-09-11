@@ -19,7 +19,8 @@
     "db:migrate": "prisma migrate deploy",
     "test:db": "tsx scripts/test-db.ts",
     "test:db:local": "tsx scripts/test-db-local.ts",
-    "verify:runbook": "node scripts/verify-runbook.mjs"
+    "verify:runbook": "node scripts/verify-runbook.mjs",
+    "test:classifier": "tsx --test server/classifier.test.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

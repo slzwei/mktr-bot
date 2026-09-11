@@ -1,5 +1,8 @@
 # Implementation decisions
 
+- **B3 — one classification deadline and rules fallback:** use the configured model with a 1500 ms default `AbortSignal.timeout`, zero SDK retries, output validation, and a rules fallback counter because retrying a slow classifier extends audible silence while deterministic fallback can immediately route the call.
+- **B3 — refusal before acceptance:** evaluate explicit do-not-call/product refusal before callback and positive words, but allow bare “no” before a request to call later, because Singapore English acceptance and temporary-unavailability phrases need distinct routing without negation reversals; 89 fixtures preserve these decisions.
+
 - **B2 — readiness through the event connection:** query Singtel gateway status through the existing ESL client, accept only connected `REGED`, and bound/cache/coalesce probes because a healthy HTTP process does not prove trunk readiness and health checks must not congest call commands.
 - **B2 — local aggregate metrics:** use pino with request/call correlation and `prom-client` with fixed outcome/provider labels, expose metrics only through the local API/private network, and keep counters process-local because a single-host deployment needs inspectable monitoring without external services or high-cardinality personal data.
 
