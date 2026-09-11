@@ -15,7 +15,9 @@ import { CALLER_IDS, type OperatorSettings, type TestCallInput } from "../src/li
 import { createAuth, requireAdmin, requireMediaGateway, type AuthStore } from "./auth.js";
 import { config } from "./config.js";
 import { CampaignDialer, campaignDetail, createCampaign } from "./campaigns.js";
-import { importContacts } from "./contacts.js";
+import { importContacts, previewContacts } from "./contacts.js";
+import { DncChecker, previewDnc, type DncConfig } from "./dnc.js";
+import { permissionSummary } from "./permission-summary.js";
 import { campaignCsv } from "./outcomes.js";
 import { validateOutcomeWebhook, type OutcomeWebhookConfig } from "./outcome-delivery.js";
 import type { TranscriptClassifier } from "./classifier.js";
@@ -45,6 +47,7 @@ export type AppDependencies = {
   callRateLimit?: number;
   campaignDialer?: CampaignDialer;
   outcomeWebhook?: OutcomeWebhookConfig;
+  dnc?: DncConfig;
 };
 
 export function createApp(dependencies: AppDependencies) {
@@ -58,6 +61,7 @@ export function createApp(dependencies: AppDependencies) {
   const auth = createAuth(authStore);
   const campaigns = dependencies.campaignDialer ?? new CampaignDialer(store, calls, { logger });
   const outcomeWebhook = dependencies.outcomeWebhook ?? config.outcomeWebhook;
+  const dnc = new DncChecker(store, { ...(dependencies.dnc ?? config.dnc), logger });
   app.disable("x-powered-by");
   app.set("trust proxy", dependencies.trustProxy ?? config.trustProxy);
   app.use(helmet({
@@ -144,6 +148,15 @@ export function createApp(dependencies: AppDependencies) {
   app.get("/api/bootstrap", async (_request, response) => {
     response.json({ flows: await store.listFlows(), clips: await store.listClips(), calls: await store.listCalls(), trunk: getTrunkStatus(calls.activeCallCount(), adapter) });
   });
+  app.get("/api/compliance/summary", async (_request, response) => {
+    await store.flush();
+    response.json({ contacts: permissionSummary(store, store.listContacts().map((contact) => contact.phone)), dncEnabled: dnc.enabled });
+  });
+  app.post("/api/compliance/dnc/check", async (request, response) => {
+    const body = z.object({ phone: z.string().regex(/^\+65\d{8}$/), maxCredits: z.literal(1) }).strict().parse(request.body);
+    if (!dnc.enabled) throw new HttpError(503, "Automatic Registry checking is disabled.");
+    response.json(await dnc.scrubPhones([body.phone], body.maxCredits));
+  });
   app.use("/api/compliance", complianceRoutes(store));
   app.get("/api/calls/:id/recording", async (request, response) => {
     const call = store.getCall(request.params.id);
@@ -157,7 +170,22 @@ export function createApp(dependencies: AppDependencies) {
     return response.download(location, filename);
   });
   app.get("/api/contacts", (_request, response) => response.json(store.listContacts()));
+  app.post("/api/contacts/preview", async (request, response) => {
+    const body = z.object({ csv: z.string().min(1).max(1_000_000) }).strict().parse(request.body);
+    await store.flush();
+    const preview = previewContacts(store, body.csv);
+    const checking = previewDnc(store, preview.contacts.map((contact) => contact.phone));
+    response.json({ imported: preview.imported, duplicates: preview.duplicates, needsCheck: checking.numbers.length,
+      alreadyCovered: checking.skippedAlreadyCovered, notSingapore: checking.skippedNotSingapore,
+      credits: dnc.enabled ? checking.numbers.length : 0, dncEnabled: dnc.enabled });
+  });
   app.post("/api/contacts/import", async (request, response) => {
+    if (dnc.enabled) {
+      const body = z.object({ csv: z.string().min(1).max(1_000_000), maxDncCredits: z.number().int().min(0).max(1000) }).strict().parse(request.body);
+      const imported = await importContacts(store, body.csv);
+      const result = await dnc.scrubPhones(imported.contacts.map((contact) => contact.phone), body.maxDncCredits);
+      return response.status(201).json({ ...imported, dnc: result });
+    }
     const body = z.object({ csv: z.string().min(1).max(1_000_000) }).strict().parse(request.body);
     return response.status(201).json(await importContacts(store, body.csv));
   });

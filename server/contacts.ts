@@ -48,7 +48,7 @@ function parseCsv(csv: string): string[][] {
   return rows;
 }
 
-export async function importContacts(store: Store, csv: string, date = new Date()) {
+export function previewContacts(store: Store, csv: string) {
   const [headers, ...rows] = parseCsv(csv);
   if (!headers || !rows.length) throw new HttpError(400, "CSV needs a phone header and at least one contact.");
   const normalizedHeaders = headers.map((header) => header.trim().toLowerCase());
@@ -66,10 +66,15 @@ export async function importContacts(store: Store, csv: string, date = new Date(
     if (unique.has(phone) || store.findContactByPhone(phone)) { duplicates++; return; }
     unique.set(phone, { name, phone });
   });
+  return { imported: unique.size, duplicates, contacts: [...unique.values()] };
+}
+
+export async function importContacts(store: Store, csv: string, date = new Date()) {
+  const preview = previewContacts(store, csv);
   // Validate the entire input before writing; one bad row cannot partially import a campaign.
   const timestamp = date.toISOString();
-  const contacts: Contact[] = [...unique.values()].map((contact) => ({ ...contact, id: randomUUID(), createdAt: timestamp, updatedAt: timestamp }));
+  const contacts: Contact[] = preview.contacts.map((contact) => ({ ...contact, id: randomUUID(), createdAt: timestamp, updatedAt: timestamp }));
   if (contacts.length) store.saveContacts(contacts);
   await store.flush();
-  return { imported: contacts.length, duplicates, contacts };
+  return { imported: contacts.length, duplicates: preview.duplicates, contacts };
 }

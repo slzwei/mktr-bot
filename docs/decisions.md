@@ -1,5 +1,15 @@
 # Implementation decisions
 
+- C2a: Share CSV parsing and deduplication between free preview and import, then require the displayed `maxDncCredits` on enabled imports, because changing consent or expiry must never increase spending beyond the operator's confirmation.
+- C2a: Add checking counts under an optional `dnc` import result and expose separate authenticated preview, summary and single-check routes because the disabled import contract must remain byte-for-byte unchanged while permission reads stay free.
+- C2a: Cancel the draft's automatic paid expiry sweep and expose expiry warnings plus an explicit one-credit action because every paid check requires a visible cost and an operator click; valid evidence, including near-expiry results, is never rechecked.
+- C2a: Serialize checks per API/store, recheck coverage before each batch and omit fresh negative results as well as consent and fresh clearances because simultaneous actions and already-known registration must not consume duplicate credits.
+- C2a: Require HTTP 200 and a complete, exact S000 result set before any batch writes, preserve earlier successful batches after a later failure, and return failed/unsent counts because partial or ambiguous evidence must never become voice permission.
+- C2a: Bound each gateway request to ten seconds and each response to 128 KB, refuse redirects and never retry automatically because a lost response may already have spent prepaid credits; report submitted numbers and billing uncertainty instead of inventing a balance or exact failed-request charge.
+- C2a: Store the Registry creation time, validity date and three register flags in the existing append-only JSON snapshot because that preserves provider evidence without a migration while leaving the receipt-based 21-day dial gate untouched.
+- C2a: Keep registered contacts stored and selectable, and derive the aggregate UI permission summary from `ConsentPolicy`, because campaign selection does not replace the enforcement gate and later valid consent may change permission.
+- C2a: Accept only HTTPS gateway URLs outside loopback, require a dedicated secret of at least 32 characters and pass configuration through Compose with the flag defaulting off because tests need fake local HTTP while deployed requests need authenticated transport.
+
 - **B3 — one classification deadline and rules fallback:** use the configured model with a 1500 ms default `AbortSignal.timeout`, zero SDK retries, output validation, and a rules fallback counter because retrying a slow classifier extends audible silence while deterministic fallback can immediately route the call.
 - **B3 — refusal before acceptance:** evaluate explicit do-not-call/product refusal before callback and positive words, but allow bare “no” before a request to call later, because Singapore English acceptance and temporary-unavailability phrases need distinct routing without negation reversals; 89 fixtures preserve these decisions.
 

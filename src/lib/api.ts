@@ -4,6 +4,11 @@ import type {
   CampaignDetail,
   CampaignInput,
   Contact,
+  ContactImportPreview,
+  ContactImportResult,
+  DncCheckResult,
+  DncRegistryEvidence,
+  PermissionSummary,
   OutcomeDeliverySummary,
   Clip,
   FlowDefinition,
@@ -36,6 +41,7 @@ export type DncResult = {
   cleared: boolean;
   source: "Singapore DNC Registry";
   reference: string;
+  evidence?: DncRegistryEvidence;
 };
 export type VoicePermission = {
   phone: string;
@@ -68,7 +74,10 @@ export const api = {
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   bootstrap: () => request<BootstrapData>("/api/bootstrap"),
   contacts: () => request<Contact[]>("/api/contacts"),
-  importContacts: (csv: string) => request<{ imported: number; duplicates: number; contacts: Contact[] }>("/api/contacts/import", { method: "POST", body: JSON.stringify({ csv }) }),
+  previewContacts: (csv: string) => request<ContactImportPreview>("/api/contacts/preview", { method: "POST", body: JSON.stringify({ csv }) }),
+  importContacts: (csv: string, maxDncCredits?: number) => request<ContactImportResult>("/api/contacts/import", { method: "POST", body: JSON.stringify({ csv, maxDncCredits }) }),
+  permissionSummary: () => request<PermissionSummary>("/api/compliance/summary"),
+  checkDnc: (phone: string) => request<DncCheckResult>("/api/compliance/dnc/check", { method: "POST", body: JSON.stringify({ phone, maxCredits: 1 }) }),
   campaigns: () => request<CampaignDetail[]>("/api/campaigns"),
   campaign: (id: string) => request<CampaignDetail>(`/api/campaigns/${id}`),
   createCampaign: (input: CampaignInput) => request<CampaignDetail>("/api/campaigns", { method: "POST", body: JSON.stringify(input) }),

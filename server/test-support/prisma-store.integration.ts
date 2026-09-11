@@ -15,6 +15,7 @@ import { PrismaStore } from "../prisma-store.js";
 import type { TelephonyAdapter } from "../telephony.js";
 import { CampaignDialer, createCampaign } from "../campaigns.js";
 import { importContacts } from "../contacts.js";
+import type { RegistryClearance } from "../dnc.js";
 import { OutcomeDispatcher } from "../outcome-delivery.js";
 
 const databaseUrl = process.env.DATABASE_TEST_URL;
@@ -261,6 +262,30 @@ test("append-only consent and DNC evidence survive Postgres restart and a withdr
     assert.throws(() => new ConsentPolicy(restored).authorize(phone), /opted out/);
     assert.equal(await sql.consentRecord.count({ where: { phone } }), 2);
   } finally { await restored.close(); await sql.$disconnect(); }
+});
+
+test("automatic S000 Registry evidence survives Postgres restart in the append-only JSON snapshot", async () => {
+  const { DncChecker } = await import("../dnc.js");
+  const { FakeDncGateway } = await import("./fake-dnc.js");
+  const gateway = await new FakeDncGateway().start();
+  const store = await PrismaStore.connect(databaseUrl);
+  const sql = new PrismaClient({ datasourceUrl: databaseUrl });
+  const phone = "+6587345699";
+  let closed = false;
+  try {
+    const result = await new DncChecker(store, gateway.config()).scrubPhones([phone], 1);
+    assert.equal(result.checked, 1);
+    const record = store.getDncClearance(phone)!;
+    const row = await sql.dncClearance.findUniqueOrThrow({ where: { id: record.id } });
+    assert.deepEqual(row.snapshot, record);
+    assert.deepEqual((row.snapshot as RegistryClearance).evidence, { statusCode: "S000", createdTime: "2026-09-11 16:00:02", validUntil: "2026-10-11T15:59:59.000Z", noVoiceCall: false, noTextMessage: false, noFax: false });
+    await assert.rejects(sql.dncClearance.update({ where: { id: record.id }, data: { snapshot: {} } }), /append-only/);
+    await store.close();
+    closed = true;
+    const restored = await PrismaStore.connect(databaseUrl);
+    try { assert.deepEqual(restored.getDncClearance(phone), record); }
+    finally { await restored.close(); }
+  } finally { if (!closed) await store.close(); await sql.$disconnect(); await gateway.close(); }
 });
 
 test("outcome outbox survives Postgres restart with stable signed payload and persisted retry count", async () => {

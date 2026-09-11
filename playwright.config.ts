@@ -33,6 +33,9 @@ export default defineConfig({
         MKTR_ADMIN_EMAIL: process.env.MKTR_E2E_ADMIN_EMAIL,
         MKTR_ADMIN_PASSWORD: process.env.MKTR_E2E_ADMIN_PASSWORD,
         MKTR_TELEPHONY_MODE: "simulated",
+        MKTR_DNC_ENABLED: "",
+        MKTR_DNC_GATEWAY_URL: "",
+        MKTR_DNC_GATEWAY_SECRET: "",
         MKTR_CLASSIFIER_MODE: "rules",
         MKTR_CLIP_STORAGE_DIR: path.resolve("test-results", "clips")
       }

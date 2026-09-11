@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { LoaderCircle, ShieldCheck } from "lucide-react";
 import { api, type VoicePermission } from "../lib/api";
+import { registryOutcome } from "../lib/permission-display";
 import "./consent.css";
 
 type EvidenceType = "consent" | "dnc" | "opt-out";
@@ -14,7 +15,7 @@ function evidenceTimestamp(value: string): string {
   return date.toISOString();
 }
 
-export function ConsentPanel() {
+export function ConsentPanel({ dncEnabled, onChanged }: { dncEnabled: boolean; onChanged: () => Promise<void> }) {
   const [phone, setPhone] = useState("");
   const [kind, setKind] = useState<EvidenceType>("consent");
   const [source, setSource] = useState("");
@@ -25,8 +26,11 @@ export function ConsentPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const running = useRef(false);
 
   const run = async (action: (number: string) => Promise<void>) => {
+    if (running.current) return;
+    running.current = true;
     setBusy(true); setError(""); setNotice(""); setPermission(null);
     try {
       const number = phone.trim();
@@ -34,10 +38,16 @@ export function ConsentPanel() {
       await action(number);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Could not update voice call permission.");
-    } finally { setBusy(false); }
+    } finally { running.current = false; setBusy(false); }
   };
 
   const check = () => run(async (number) => { setPermission(await api.voicePermission(number)); });
+  const checkRegistry = () => run(async (number) => {
+    const result = await api.checkDnc(number);
+    setNotice(registryOutcome(result));
+    setPermission(await api.voicePermission(number));
+    await onChanged();
+  });
   const save = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void run(async (number) => {
@@ -54,17 +64,22 @@ export function ConsentPanel() {
       }
       setPermission(await api.voicePermission(number));
       setNotice(kind === "opt-out" ? "Opt-out recorded. This number is blocked from marketing voice calls." : "Evidence saved. Permission has been checked again.");
+      await onChanged();
     });
   };
 
   return <section className="campaign-card consent-panel" aria-labelledby="consent-heading">
     <h2 id="consent-heading"><ShieldCheck size={18} /> Voice call permission</h2>
-    <p>Record the evidence for each number before starting a campaign. Importing a contact does not record permission.</p>
+    <p>Each number needs recorded permission before a voice call. Registry checks can record Singapore results automatically; keep using the forms below for consent, opt-outs and results obtained elsewhere.</p>
     <form onSubmit={save}>
       <div className="consent-phone-row">
         <label>Permission phone number<input type="tel" autoComplete="tel" required pattern="\+[1-9][0-9]{7,14}" maxLength={16} value={phone} disabled={busy} placeholder="+6591234567" onChange={(event) => { setPhone(event.target.value); setPermission(null); setError(""); setNotice(""); }} /></label>
         <button type="button" className="secondary-button" disabled={busy || !phone.trim()} onClick={() => { void check(); }}>Check permission</button>
       </div>
+      {dncEnabled && <div className="registry-check-action">
+        <p>Check this Singapore number now. This spends 1 credit unless valid consent or a current Registry result already covers it. The result is recorded automatically; an opt-out still blocks calls.</p>
+        <button type="button" className="secondary-button" disabled={busy || !/^\+65\d{8}$/.test(phone.trim())} onClick={() => { void checkRegistry(); }}>Check Registry · 1 credit</button>
+      </div>}
       <div className="campaign-fields">
         <label>Evidence type<select value={kind} disabled={busy} onChange={(event) => { setKind(event.target.value as EvidenceType); setSource(""); setReference(""); setTimestamp(""); setDncResult(""); setError(""); setNotice(""); }}><option value="consent">Consent to marketing voice calls</option><option value="dnc">DNC Registry result</option><option value="opt-out">Opt-out of marketing voice calls</option></select></label>
         <label>Evidence source{kind === "dnc" ? <input value="Singapore DNC Registry" readOnly /> : <input required minLength={3} maxLength={200} value={source} disabled={busy} placeholder={kind === "consent" ? "Signed voice marketing consent form" : "Customer opt-out request"} onChange={(event) => setSource(event.target.value)} />}</label>

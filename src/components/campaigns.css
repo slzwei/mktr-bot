@@ -15,6 +15,14 @@
 .campaign-card summary { font-size: 12px; font-weight: 600; margin-bottom: 12px; cursor: pointer; }
 .campaign-contacts { border: 1px solid #e5ebeb; border-radius: 8px; padding: 12px; max-height: 180px; overflow: auto; margin: 0 0 16px; }
 .campaign-contacts small { display: block; color: #6d7c7d; font-weight: 400; }
+.campaign-contacts .contact-permission { padding: 9px; border-left: 3px solid #177461; border-radius: 4px; background: #f1f8f4; }
+.campaign-contacts .contact-permission--blocked { border-left-color: #aa493b; background: #fff1ee; }
+.campaign-contacts .contact-permission--expiring { border-left-color: #9a6b10; background: #fff7df; }
+.permission-state { display: block; margin-top: 4px; font-size: 12px; }
+.contact-permission--blocked .permission-state { color: #953f36; }
+.contact-permission--expiring .permission-state { color: #79530b; }
+.import-preview, .registry-check-action { background: #f0f6f5; border: 1px solid #dbe6e2; border-radius: 8px; padding: 12px; margin-bottom: 14px; }
+.import-preview p:first-child, .registry-check-action p:first-child { margin-top: 0; }
 .campaign-message { padding: 12px; border-radius: 8px; background: #edf8f2; color: #235c44; margin: 12px 0; font-size: 13px; }
 .campaign-message--error { background: #fff1ee; color: #953f36; }
 .campaign-progress-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }

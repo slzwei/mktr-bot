@@ -215,6 +215,47 @@ export type TestCallInput = {
   scenario?: "interested" | "not_interested" | "callback" | "uncertain";
 };
 
+export type DncRegistryEvidence = {
+  statusCode: "S000";
+  createdTime: string;
+  validUntil: string;
+  noVoiceCall: boolean;
+  noTextMessage: boolean;
+  noFax: boolean;
+};
+
+export type DncCheckResult = {
+  checked: number;
+  cleared: number;
+  registered: number;
+  skippedAlreadyCovered: number;
+  skippedNotSingapore: number;
+  failed: number;
+  submitted: number;
+  failure?: { statusCode: string; httpStatus?: number; message: string; billingUncertain?: boolean };
+};
+
+export type ContactImportPreview = {
+  imported: number;
+  duplicates: number;
+  needsCheck: number;
+  alreadyCovered: number;
+  notSingapore: number;
+  credits: number;
+  dncEnabled: boolean;
+};
+
+export type ContactPermission = {
+  phone: string;
+  dialable: boolean;
+  basis: "consent" | "dnc" | null;
+  clearanceExpiresAt: string | null;
+  skipReason?: string;
+};
+
+export type PermissionSummary = { contacts: ContactPermission[]; dncEnabled: boolean };
+export type ContactImportResult = { imported: number; duplicates: number; contacts: Contact[]; dnc?: DncCheckResult };
+
 export type Contact = {
   id: string;
   name: string;

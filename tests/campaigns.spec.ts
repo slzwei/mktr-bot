@@ -5,7 +5,7 @@ test("three simulated contacts complete a campaign with recorded outcomes and du
   await page.goto("/");
   await page.getByRole("button", { name: "Campaigns", exact: true }).click();
   await page.getByLabel("CSV contacts").fill('name,phone\n"Campaign Alex",91234010\nCampaign Bea,+65 8123 4011\nCampaign Chen,6591234012');
-  await page.getByRole("button", { name: "Import CSV", exact: true }).click();
+  await page.getByRole("button", { name: "Import 3 contacts · 0 credits", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Imported 3 contacts");
   await page.getByLabel("Campaign name", { exact: true }).fill("Three simulated contacts");
   await expect(page.getByLabel("Start time", { exact: true })).toHaveValue("09:00");
