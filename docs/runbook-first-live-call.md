@@ -16,13 +16,13 @@ Before the first dial, record the approved destination's actual voice-marketing 
 
 ## 1. Close the prerequisites
 
-A1 through A7 must be complete before dialing, including the runtime checks that need the operator host. Review their `Status` and `Evidence` in `PRODUCTION_CHECKLIST.md`; a passing fake-provider test cannot close a real registration or Docker check. The preparation and registration steps below let Shawn resolve those outstanding infrastructure checks while the API remains in simulator mode. Do not advance to the call while any required check fails.
+Review the `Status` and `Evidence` for A1 through A7 in `PRODUCTION_CHECKLIST.md`. Complete their software checks and the pre-call infrastructure gates below: image builds, persistent storage, authentication/HTTPS, private ESL, and Singtel REGED/TLS. A passing fake-provider test cannot close a real registration or Docker check. Preparation and registration resolve those infrastructure checks while the API remains in simulator mode; real media/STT checks are completed during the one controlled call in section 4. Do not advance to that call while a pre-call check fails.
 
 Shawn provisions the Linux host with a public static IP, installs Docker Engine/Compose and the pinned Node version, and deploys the reviewed commit. Confirm the IP whitelist with Singtel. The account's signaling IP is not the host's public IP. Follow `docs/freeswitch-deployment.md` for the pinned source build, TLS CA/identity files, private addresses, and firewall rules: TLS TCP 5061 and local UDP 10000–10199, with Singtel's documented remote media IPs/ports. ESL 8021 must have no host publication. Public operator access goes through Caddy HTTPS; direct API access remains loopback/private.
 
-Create a protected deployment environment file outside Git, for example `/etc/mktr/voice.env`, readable only by the deployment operator. Populate the names in `.env.example`: admin email/password, database password/URL, Caddy domain, exact HTTPS origin, Singtel values, public IP, certificate paths, a random ESL password, media bearer token, and Deepgram key. Select Deepgram, application locale `en-SG` (mapped to Deepgram `en`), and the desired classifier/model; supply the OpenAI key only if selecting that classifier. Never paste secrets into command arguments or share rendered Compose/XML output.
+Create a protected deployment environment file outside Git, for example `/etc/mktr/voice.env`, readable only by the deployment operator. `.env.example` is a names-only inventory; fill required values and omit unused optional entries. Set the admin email, a random admin password of at least 16 characters, database password, Caddy domain, exact HTTPS origin, Singtel values, public IP, certificate paths, independent ESL and URL-safe media bearer secrets of at least 16 characters, and Deepgram key. Compose supplies the API's Postgres URL from the database password. Select Deepgram, application locale `en-SG` (mapped to Deepgram `en`), and the desired classifier/model; supply the OpenAI key only if selecting that classifier. Never paste secrets into command arguments or share rendered Compose/XML output.
 
-Initially set `MKTR_TELEPHONY_MODE` to `simulated`. In the protected environment set `MKTR_MAX_CONCURRENT_CALLS` to **1**, `MKTR_MAX_CALL_SECONDS` to **60**, and `MKTR_ORIGINATE_TIMEOUT_SECONDS` to **30**. Keep campaigns paused. Set the nonsecret shell variables `MKTR_DEPLOY_ENV`, `MKTR_FSCLI_PROFILE`, and `MKTR_VOICE_ORIGIN` to the deployment env file, private diagnostic profile, and exact HTTPS origin. Run from the repository root:
+Initially set `MKTR_TELEPHONY_MODE` to `simulated`. In the protected environment set `MKTR_MAX_CONCURRENT_CALLS` to **1**, `MKTR_MAX_CALL_SECONDS` to **60**, and `MKTR_ORIGINATE_TIMEOUT_SECONDS` to **30**. Keep campaigns paused. Set `MKTR_INBOUND_CALLBACK_ENABLED`, `MKTR_INBOUND_RECORD_MESSAGE`, and `MKTR_RECORDING_ENABLED` to `false`, and leave outcome webhook settings unset for this first-call window. Their later checks require separate operator review. Set the nonsecret shell variables `MKTR_DEPLOY_ENV`, `MKTR_FSCLI_PROFILE`, and `MKTR_VOICE_ORIGIN` to the deployment env file, private diagnostic profile, and exact HTTPS origin. Run from the repository root:
 
 ```bash
 : "${MKTR_DEPLOY_ENV:?Set the absolute protected deployment env-file path}"
@@ -38,6 +38,7 @@ docker compose --env-file "$MKTR_DEPLOY_ENV" --profile live config --quiet
 The env-file selection also applies to the backup script's Compose calls through `COMPOSE_ENV_FILES`. Shell variables take precedence over env-file values; remove stale telephony/limit overrides before inspection. [Docker documents this env-file behavior](https://docs.docker.com/compose/how-tos/environment-variables/envvars/).
 
 ```bash
+npm ci
 npm run verify:runbook
 npm run render:freeswitch -- --dry-run
 npm run build
@@ -84,14 +85,15 @@ docker compose --env-file "$MKTR_DEPLOY_ENV" up --detach --no-deps freeswitch
 scripts/fs-cli-private.sh -x "sofia status gateway singtel"
 scripts/fs-cli-private.sh -x "sofia status profile external"
 scripts/fs-cli-private.sh -x "module_exists mod_audio_stream"
+scripts/fs-cli-private.sh -x "module_exists mod_avmd"
 scripts/fs-cli-private.sh -x "show channels as json"
 ```
 
-Require gateway **REGED**, external **TLS 5061**, the correct advertised public IP, `mod_audio_stream` present, and no leftover MKTR channel. Copy those redacted results into the deployment record and A4 evidence. Resolve a CA, certificate, NAT, module, or registration failure before proceeding; retain TLS verification and the private ESL ACL. Do not test connectivity by originating a call from `fs_cli`.
+Require gateway **REGED**, external **TLS 5061**, the correct advertised public IP, both `mod_audio_stream` and `mod_avmd` present, and no leftover MKTR channel. Copy those redacted results into the deployment record and A4 evidence. Outbound answers start the voicemail beep detector, so a missing detector module blocks the first call as well as a missing streaming module. Resolve a CA, certificate, NAT, module, or registration failure before proceeding; retain TLS verification and the private ESL ACL. Do not test connectivity by originating a call from `fs_cli`.
 
 ## 4. Enable the application for one operator call
 
-Only after Shawn records the single destination/review and A1–A7 gates, Shawn manually changes `MKTR_TELEPHONY_MODE` in the protected deployment file to the FreeSWITCH adapter value. Do not change a committed file. Keep limits at 1 and 60, and recreate both API and worker so their modes agree. Confirm Deepgram is configured; real STT connectivity and accent accuracy still need the upcoming operator call.
+Only after Shawn records the single destination/review and passes the pre-call gates in sections 1–3, Shawn manually changes `MKTR_TELEPHONY_MODE` in the protected deployment file to the FreeSWITCH adapter value. Do not change a committed file. Keep limits at 1 and 60, callbacks and recording disabled, campaigns paused, and webhooks unconfigured; recreate both API and worker so their modes agree. Confirm Deepgram is configured; real STT connectivity and accent accuracy still need the upcoming operator call.
 
 ```bash
 docker compose --env-file "$MKTR_DEPLOY_ENV" --profile live config --format json | node scripts/check-first-call-config.mjs --gateway
@@ -175,4 +177,8 @@ A8 remains blocked by **Shawn's review and designation of the one approved E.164
 
 After the first human test succeeds, Shawn checks a separately approved voicemail destination and confirms a detected beep produces `voicemail` and an immediate hangup. The local detector can miss machines without a beep or misidentify tones; inspect `avmd::beep` events and the selected flow timing before campaigning. Verify busy/no-answer outcomes using controlled destinations and provider logs.
 
-Recording is off by default. If MKTR needs it, review the opening notice and retention period, enable the optional recording setting on the host, then use an approved test to confirm the authenticated download contains the expected audio. Check that API and gateway share the recording volume and UID 1000. Review purge logs and `docs/recording-and-amd.md`; no recording or detector quality has been verified by the agent. Configure an outcome receiver only after it verifies HMAC signatures and deduplicates delivery IDs as described in `docs/outcome-webhooks.md`.
+Recording is off by default. If MKTR needs it, review the opening notice and retention period, enable the optional recording setting on the host, then use an approved test to confirm the authenticated download contains the expected audio. Check that API and gateway share the recording volume and UID 1000. Verify an expired test recording is removed and its download is rejected; review purge logs and `docs/recording-and-amd.md`. The database/clip backup does not include the recording volume, so review recording recovery separately before relying on it. No recording or detector quality has been verified by the agent.
+
+Use a reviewed test campaign to verify the CSV has one row per call attempt and the expected normalized outcomes. Before configuring its outcome webhook, review the recipient host and set the private allowlist and HMAC secret. Have the receiver verify the raw-body signature, timestamp and stable delivery ID; confirm a 2xx acknowledgement marks delivery successful and a duplicate ID applies no second action. Keep the campaign paused while reviewing queued failures. Follow `docs/outcome-webhooks.md`; external receiver delivery has not been exercised here.
+
+Inbound callbacks remain disabled until Singtel confirms the delivery source IP, DID format, TLS/SRTP routing and shared concurrency allowance for the approved pool. Record the actual support ticket or written confirmation, choose the uploaded greeting and any recording notice, and complete the isolated two-leg loopback check in `docs/inbound-callbacks.md` before a separately approved inbound test. A callback check does not authorize more outbound destinations or raising the first-call limit.

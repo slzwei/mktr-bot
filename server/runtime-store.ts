@@ -30,7 +30,7 @@ export async function initializeStore(env: NodeJS.ProcessEnv = process.env): Pro
   await migrateDatabase(env.DATABASE_URL);
   const store = await PrismaStore.connect(env.DATABASE_URL);
   try {
-    await reconcileClipStorage(store, env.MKTR_CLIP_STORAGE_DIR ?? config.clipStorageDir);
+    await reconcileClipStorage(store, env.MKTR_CLIP_STORAGE_DIR || config.clipStorageDir);
     return { store, authStore: store };
   } catch (error) {
     await store.close();

@@ -2,8 +2,8 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { defineConfig } from "@playwright/test";
 
-const apiPort = process.env.MKTR_E2E_API_PORT ?? "18877";
-const webPort = process.env.MKTR_E2E_WEB_PORT ?? "15173";
+const apiPort = process.env.MKTR_E2E_API_PORT || "18877";
+const webPort = process.env.MKTR_E2E_WEB_PORT || "15173";
 const webOrigin = `http://127.0.0.1:${webPort}`;
 process.env.MKTR_E2E_ADMIN_EMAIL ??= "e2e-operator@example.test";
 process.env.MKTR_E2E_ADMIN_PASSWORD ??= randomBytes(32).toString("hex");
@@ -19,7 +19,8 @@ export default defineConfig({
   use: {
     baseURL: webOrigin,
     viewport: { width: 1440, height: 1000 },
-    trace: "retain-on-failure"
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure"
   },
   webServer: [
     {

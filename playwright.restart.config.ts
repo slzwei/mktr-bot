@@ -5,5 +5,5 @@ export default defineConfig({
   testMatch: /sse-restart\.spec\.ts/,
   workers: 1,
   timeout: 90_000,
-  use: { viewport: { width: 1440, height: 1000 }, actionTimeout: 10_000, trace: "retain-on-failure" }
+  use: { viewport: { width: 1440, height: 1000 }, actionTimeout: 10_000, trace: "retain-on-failure", screenshot: "only-on-failure" }
 });

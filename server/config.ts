@@ -33,10 +33,10 @@ export const config = {
   originateTimeoutSeconds: boundedInteger(process.env.MKTR_ORIGINATE_TIMEOUT_SECONDS, 30, 1, 120),
   maxCallSeconds: boundedInteger(process.env.MKTR_MAX_CALL_SECONDS, 180, 1, 1800),
   outcomeWebhook: outcomeWebhookConfig(process.env),
-  clipStorageDir: process.env.MKTR_CLIP_STORAGE_DIR ?? path.join(process.cwd(), "storage", "clips"),
+  clipStorageDir: process.env.MKTR_CLIP_STORAGE_DIR || path.join(process.cwd(), "storage", "clips"),
   recording: {
     enabled: process.env.MKTR_RECORDING_ENABLED === "true",
-    directory: process.env.MKTR_RECORDING_STORAGE_DIR ?? path.join(process.cwd(), "storage", "recordings"),
+    directory: process.env.MKTR_RECORDING_STORAGE_DIR || path.join(process.cwd(), "storage", "recordings"),
     retentionDays: boundedInteger(process.env.MKTR_RECORDING_RETENTION_DAYS, 30, 1, 365)
   },
   classifier: {
@@ -48,25 +48,25 @@ export const config = {
     timeoutMs: classifierTimeoutFromEnvironment(process.env)
   },
   mediaGateway: {
-    workerUrl: process.env.MKTR_MEDIA_WORKER_URL ?? "ws://media-worker:8090",
+    workerUrl: process.env.MKTR_MEDIA_WORKER_URL || "ws://media-worker:8090",
     webhookToken: process.env.MKTR_MEDIA_GATEWAY_TOKEN ?? ""
   },
   singtel: {
-    host: process.env.MKTR_SINGTEL_SIP_HOST ?? "sipsg01.b3networks.com",
-    ip: process.env.MKTR_SINGTEL_SIP_IP ?? "52.77.0.62",
+    host: process.env.MKTR_SINGTEL_SIP_HOST || "sipsg01.b3networks.com",
+    ip: process.env.MKTR_SINGTEL_SIP_IP || "52.77.0.62",
     pcmaPort: int(process.env.MKTR_SINGTEL_PCMA_PORT, 5061),
     opusPort: int(process.env.MKTR_SINGTEL_OPUS_PORT, 5081),
-    username: process.env.MKTR_SINGTEL_SIP_USERNAME ?? "sip69992409",
+    username: process.env.MKTR_SINGTEL_SIP_USERNAME || "sip69992409",
     password: process.env.MKTR_SINGTEL_SIP_PASSWORD ?? "",
     mediaIpRange: "54.251.255.196-54.251.255.211",
     mediaPortRange: "10000-30000",
     caCertificatePath: process.env.MKTR_SINGTEL_CA_CERT_PATH ?? ""
   },
   freeswitch: {
-    host: process.env.MKTR_FREESWITCH_ESL_HOST ?? "127.0.0.1",
+    host: process.env.MKTR_FREESWITCH_ESL_HOST || "127.0.0.1",
     port: int(process.env.MKTR_FREESWITCH_ESL_PORT, 8021),
     password: process.env.MKTR_FREESWITCH_ESL_PASSWORD ?? "",
-    mediaDirectory: process.env.MKTR_FREESWITCH_MEDIA_DIR ?? "/var/lib/freeswitch/recordings/mktr"
+    mediaDirectory: process.env.MKTR_FREESWITCH_MEDIA_DIR || "/var/lib/freeswitch/recordings/mktr"
   }
 };
 

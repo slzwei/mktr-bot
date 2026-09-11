@@ -50,10 +50,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: verification-artifacts
-          path: |
-            playwright-report/
-            test-results/
-            !test-results/**/auth-state*
-            !test-results/.auth/**
+          name: verification-screenshots
+          path: test-results/**/*.png
+          if-no-files-found: ignore
           retention-days: 7

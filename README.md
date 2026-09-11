@@ -2,21 +2,28 @@
 
 MKTR Voice Control is an internal call-flow workspace for the Singtel CPaaS SIP trunk. It provides a React Flow canvas for connecting call nodes, a WAV/MP3 clip library, a safe call simulator, live event timelines, and the FreeSWITCH ESL adapter used when live origination is enabled.
 
-The application is safe by default. It runs in simulator mode, uses only the approved caller IDs `+6562773211` through `+6562773219`, and permanently rejects `+6562773210` because that number is reserved for Retell. The trunk ceiling is five concurrent calls.
+The application runs in simulator mode by default. `CALLER_IDS` in `src/lib/domain.ts` supplies the approved caller IDs, and the guard permanently denies the Retell-reserved number. The trunk ceiling is five concurrent calls. Provider behavior is verified against fake ESL and fake STT; real Singtel registration, media and first-call checks remain operator actions.
 
 ## Local development
 
+Use Node `24.14.0` and install the locked dependencies:
+
 ```bash
-npm install
-cp .env.example .env
-MKTR_STORE=memory npm run dev
+npm ci
 ```
 
-Set `MKTR_ADMIN_EMAIL` and a randomly generated `MKTR_ADMIN_PASSWORD` of at least 16 characters in your local shell environment before starting the API. There are no shared default credentials. Set `MKTR_WEB_ORIGIN` to the exact web origin (local default `http://localhost:5173`). The API reads process environment variables; use your shell's secret loading mechanism for the ignored `.env` file.
+Create a private environment file outside Git containing `MKTR_ADMIN_EMAIL` and a randomly generated `MKTR_ADMIN_PASSWORD` of at least 16 characters. There are no shared default credentials. Set `MKTR_WEB_ORIGIN` to the exact web origin (local default `http://localhost:5173`). `.env.example` is a names-only inventory; fill required values and omit unused optional entries. Set the nonsecret shell variable `MKTR_DEV_ENV` to the absolute path of your private file, then launch through Node's environment-file loader:
 
-Open <http://localhost:5173> and sign in. The API is available at <http://localhost:8787/api/health>. Start a test call from a published flow and choose one of the simulated response outcomes to inspect routing, transcript, sentiment, confidence, and branch latency.
+```bash
+: "${MKTR_DEV_ENV:?Set the absolute private developer env-file path}"
+MKTR_TELEPHONY_MODE=simulated MKTR_STORE=memory node --env-file="$MKTR_DEV_ENV" node_modules/concurrently/dist/bin/concurrently.js -n api,web -c cyan,green "npm:dev:api" "npm:dev:web"
+```
 
-Uploaded clips are stored under `storage/clips` and are intentionally ignored by Git. The explicit local `MKTR_STORE=memory` option resets demo flows, clips, calls and sessions on restart. The default runtime uses Postgres through Prisma with `DATABASE_URL`, applies migrations at startup, preserves immutable published flow versions and restores call snapshots; see [durable store operations](docs/store.md).
+Node loads the file without evaluating shell commands and passes the values to both development servers. The explicit process overrides keep this launch in simulator mode with disposable memory storage. Plain `npm run dev` requires the same variables to have already been loaded into its environment; it does not automatically load `.env` for the API.
+
+Open <http://localhost:5173> and sign in; API health is at <http://localhost:8787/api/health>. In Campaigns → Voice call permission, record consent or a qualifying DNC result for the selected simulator destination. Then start a test call from a published flow and choose a simulated response to inspect routing, transcript, sentiment and latency. Imported contacts and simulator mode do not bypass the consent gate.
+
+Uploaded clips are stored under `storage/clips` and are intentionally ignored by Git. The explicit local `MKTR_STORE=memory` option resets flows, clip metadata, calls, campaigns, permission records and sessions on restart; files on disk are not a durable substitute for their database records. The default runtime uses Postgres through Prisma with `DATABASE_URL`, applies migrations at startup, preserves immutable published flow versions and restores call snapshots; see [durable store operations](docs/store.md).
 
 In **Audio clips**, drop one WAV or MP3 anywhere in the library, or use the file chooser, then select **Upload clip**. The browser fills the name and a duration hint; the server measures the audio and replaces the supplied duration with the measured value rounded to whole seconds. Files must be 10 MB or smaller and up to 180 seconds long. Preview recordings in the library or in a selected clip node's settings; starting another preview pauses the previous one.
 
@@ -50,9 +57,9 @@ npm run test:e2e
 npm run test:e2e:restart # requires existing native PostgreSQL tools
 ```
 
-Browser checks cover canvas dragging, audio file drops and uploads, media seeking, playback, draft deletion, clip deletion/archive, retry counters and the operator views. They start separate local API and web servers and use `test-results/clips` for test uploads.
+Browser checks cover editor/audio behavior, deletion/archive, permission gating, campaigns, CSV export, operator views and live capacity updates; the separate restart suite checks SSE recovery. They start separate local API and web servers and use `test-results/clips` for test uploads.
 
-Node is pinned to `24.14.0` in `engines.node`, `.nvmrc`, the API image and CI. CI runs typecheck, unit coverage, worker/database/backup checks, Chromium e2e, compose validation, and both image builds. The API image uses the `node` user, starts Node directly, and probes `/api/health`. Its runtime contains compiled application files and generated Prisma client/migrations, excluding test sources and development dependencies. `MKTR_POSTGRES_PASSWORD` must be a randomly generated URI-safe password (for example hexadecimal); Compose has no shared default database password and Postgres refuses an empty one.
+Node is pinned to `24.14.0` in `engines.node`, `.nvmrc`, the application images and CI. CI is configured to run typecheck, unit coverage, worker/database/backup checks, Chromium e2e, compose validation, and API/worker image builds. The API image uses the `node` user, starts Node directly, and probes `/api/health`. Build contexts exclude private environments/certificates, runtime files and test fixtures; the runtime retains compiled application files, Prisma CLI/client/migrations and the first-call Help document while excluding test sources and development dependencies. `MKTR_POSTGRES_PASSWORD` must be a randomly generated URI-safe password (for example hexadecimal); Compose has no shared default database password and Postgres refuses an empty one.
 
 See `docs/backups.md` for the consistent database/clip backup, restore procedure and completed native PostgreSQL drill. `npm run test:backup` creates and removes only its own disposable localhost database cluster. Container user/backup validation and a default-branch CI run require Docker and a connected GitHub remote, respectively.
 
@@ -72,19 +79,20 @@ All control-plane routes and uploaded recordings require an operator session. He
 
 ## Compose services
 
-The Compose file provisions the intended production dependencies: API, Postgres, Redis, and an optional FreeSWITCH media gateway.
+Compose defines API, media worker, Caddy, Postgres, Redis and an optional FreeSWITCH gateway. It requires a prepared private deployment environment, admin/database credentials and existing certificate mounts, even while the API is simulated. Follow the operator runbook for installation, image builds and startup; validate the selected environment without starting services:
 
 ```bash
-docker compose up --build
+: "${MKTR_DEPLOY_ENV:?Set the protected deployment environment file}"
+docker compose --env-file "$MKTR_DEPLOY_ENV" config --quiet
 ```
 
-This starts the API in simulator mode. Postgres holds flows, immutable published graphs, clips, calls, events, users and sessions. The API applies committed Prisma migrations before listening and reconciles uploaded files at boot. Redis is reserved for later multi-process coordination; the supported deployment has one API process.
+API and worker default to simulator mode. Postgres holds flows, immutable published graphs, clips, calls/events, contacts/campaigns, consent/DNC records, webhook deliveries, users and sessions. The API applies committed Prisma migrations before listening and reconciles uploaded files at boot. Redis is reserved for later multi-process coordination; the supported deployment has one API process.
 
 ## Preparing the SIP gateway
 
 Only Shawn enables the gateway and makes the first live call, following [the first-call runbook](docs/runbook-first-live-call.md). `npm run verify:runbook` parses the runbook commands and runs isolated configuration/diagnostic fixtures without credentials. Shawn must record his review and one approved test destination before executing the operator steps. The API remains in simulator mode by default. `docs/freeswitch-deployment.md` describes the pinned FreeSWITCH source build with `mod_audio_stream`, complete TLS overlay, required secret files, private networking, and matching local RTP port range.
 
-The FreeSWITCH adapter now keeps a persistent authenticated ESL connection. Answer, hangup, background originate results, and playback completion drive the orchestrator; flow completion and errors explicitly terminate the provider channel. Reconnect never replays originate commands. A production media worker must still stream callee audio to the selected STT provider and call `POST /api/calls/:id/answered` and `POST /api/calls/:id/transcript` with `Authorization: Bearer $MKTR_MEDIA_GATEWAY_TOKEN`. The latter endpoint classifies the transcript, selects the matching flow route, and plays the matching clip. The flow editor, validation, caller-ID policy, five-call guard, and event contract are in place for that worker.
+The FreeSWITCH adapter keeps a persistent authenticated ESL connection. Answer, hangup, originate results and playback completion drive the orchestrator; flow completion and errors terminate the provider channel. Reconnect reconciles channels and never replays originate commands. During each listen window, the media worker verifies that window through the bearer-protected API, streams callee PCM to Deepgram, and submits one final transcript with stable window/utterance receipt IDs. The API classifies the transcript, selects the published flow route and plays its canonical clip. Answer confirmation comes from ESL.
 `npm run render:freeswitch -- --dry-run` validates the XML templates with dummy inputs and makes no network connection. `npm run render:freeswitch` renders operator-supplied values and the TLS files to the ignored `runtime/freeswitch/conf/` directory with private permissions. The optional gateway container runs the same renderer at start, so missing inputs fail before FreeSWITCH starts. Rendered XML, SIP/ESL passwords, and TLS material must never be committed.
 
 Gateway registration, TLS 5061, and actual audio transport remain operator checks. Configuration and fake-adapter tests do not prove a live trunk works.

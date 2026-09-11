@@ -36,4 +36,3 @@ ALTER TABLE "OutcomeDelivery" ADD CONSTRAINT "OutcomeDelivery_callId_fkey" FOREI
 
 -- AddForeignKey
 ALTER TABLE "OutcomeDelivery" ADD CONSTRAINT "OutcomeDelivery_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "Campaign"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-

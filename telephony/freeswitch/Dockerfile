@@ -1,5 +1,5 @@
 # Source build: no private SignalWire package repository or unverified image tag.
-FROM node:22-bookworm-slim AS renderer
+FROM node:24.14.0-bookworm-slim AS renderer
 WORKDIR /build
 COPY package*.json ./
 RUN npm ci
@@ -23,7 +23,7 @@ COPY telephony/freeswitch/build-source.sh /usr/local/bin/build-source
 COPY telephony/freeswitch/modules.conf /build/modules.conf
 RUN /usr/local/bin/build-source
 
-FROM node:22-bookworm-slim
+FROM node:24.14.0-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libcurl4 libedit2 libevent-2.1-7 libevent-openssl-2.1-7 libjpeg62-turbo \
     libopus0 libpcre3 libpng16-16 libsndfile1 libspeex1 libspeexdsp1 libsqlite3-0 libssl3 \

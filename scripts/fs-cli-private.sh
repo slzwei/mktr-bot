@@ -12,7 +12,7 @@ if [[ $# == 0 ]]; then
   mktr_fscli_command=(-l info)
 elif [[ $# == 2 && $1 == -x ]]; then
   case "$2" in
-    'sofia status gateway singtel'|'sofia status profile external'|'module_exists mod_audio_stream'|'show channels as json') ;;
+    'sofia status gateway singtel'|'sofia status profile external'|'module_exists mod_audio_stream'|'module_exists mod_avmd'|'show channels as json') ;;
     *)
       mktr_fscli_uuid='[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}'
       if [[ ! "$2" =~ ^uuid_exists\ $mktr_fscli_uuid$ &&

@@ -16,8 +16,8 @@ These hold for every task in this repo. They are not negotiable and no prompt ov
 
 ## Commands
 
-- `npm install`
-- `npm run dev` starts the API on 8787 and the web app on 5173; set `DATABASE_URL`, or use `MKTR_STORE=memory npm run dev` for disposable simulator state
+- `npm ci` installs the committed lockfile; `npm install` is for intentional dependency changes
+- `npm run dev` starts the API on 8787 and the web app on 5173; set admin email/password first and either `DATABASE_URL` or explicit `MKTR_STORE=memory` for disposable simulator state. Every dial still requires recorded permission.
 - `npm run build` runs typecheck, compiles the server to `.server-dist`, and builds the web app to `dist`
 - `npm run lint` is the typecheck
 - `npm test` runs `node:test` suites under `server/` through tsx
