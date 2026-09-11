@@ -3,9 +3,14 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "${MKTR_API_PORT:-8787}:8787"
+      - "127.0.0.1:${MKTR_API_PORT:-8787}:8787"
     environment:
       PORT: 8787
+      NODE_ENV: production
+      MKTR_WEB_ORIGIN: ${MKTR_WEB_ORIGIN:-https://localhost}
+      MKTR_TRUST_PROXY: loopback,172.29.81.2
+      MKTR_ADMIN_EMAIL: ${MKTR_ADMIN_EMAIL:-}
+      MKTR_ADMIN_PASSWORD: ${MKTR_ADMIN_PASSWORD:-}
       MKTR_TELEPHONY_MODE: ${MKTR_TELEPHONY_MODE:-simulated}
       MKTR_MAX_CONCURRENT_CALLS: 5
       MKTR_CLIP_STORAGE_DIR: /app/storage/clips
@@ -30,6 +35,31 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      default:
+      proxy:
+        ipv4_address: 172.29.81.3
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+      - "443:443/udp"
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      proxy:
+        ipv4_address: 172.29.81.2
 
   postgres:
     image: postgres:16-alpine
@@ -78,3 +108,11 @@ volumes:
   postgres-data:
   redis-data:
   clip-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  proxy:
+    ipam:
+      config:
+        - subnet: 172.29.81.0/24

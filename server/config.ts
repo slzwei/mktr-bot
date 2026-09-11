@@ -8,6 +8,8 @@ const int = (value: string | undefined, fallback: number) => {
 
 export const config = {
   port: int(process.env.PORT, 8787),
+  webOrigin: process.env.MKTR_WEB_ORIGIN || "http://localhost:5173",
+  trustProxy: (process.env.MKTR_TRUST_PROXY || "loopback").split(",").map((value) => value.trim()),
   telephonyMode: (process.env.MKTR_TELEPHONY_MODE === "freeswitch"
     ? "freeswitch"
     : "simulated") as TelephonyMode,

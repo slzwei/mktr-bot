@@ -58,11 +58,12 @@ Done when: A SIGTERM and SIGINT handler stops accepting requests, hangs up every
 Verify: A test sends SIGTERM with two active fake calls and asserts two `uuid_kill` commands. `docker stop` completes without the 10 s kill.
 
 ### A7. Authentication, HTTPS, and API hardening
-Status: todo
-Evidence: 2026-09-11 simulator HTTP probes: unauthenticated `POST /api/calls` returns 201, and a preflight from `https://audit.invalid` returns 204 with `Access-Control-Allow-Origin: *`. Auth/session/login, security headers, rate limiting, trust proxy, and Caddy are absent; bearer comparison is ordinary equality (`server/index.ts:134`) and 500s expose exception messages without logging (line 177). Required supertest/auth and Playwright login tests do not exist; the existing 10 browser tests pass but do not verify A7.
+Status: done
+Evidence: 2026-09-11: `npm run build`, 13 unit tests including the supertest auth/CORS/session/role/rate-limit/error suite, and all 11 Chromium tests including `operator signs in with the environment-seeded administrator` pass; `server/auth.ts`, `server/app.ts` and `Caddyfile` implement the controls. Docker-dependent compose inspection is blocked: Docker not installed on host; TLS issuance on the operator host remains a runbook check.
 Why: Every control-plane route is open and CORS allows any origin. In live mode anyone reaching the port can dial from MKTR caller IDs.
 Done when: Operators sign in with email and password (argon2id) seeded from env. Sessions are httpOnly secure cookies. Call start, publish, upload, and flow writes require an authenticated operator, and changing telephony mode requires the `admin` role. CORS is restricted to `MKTR_WEB_ORIGIN`. Security headers are set. `POST /api/calls` is rate limited. `trust proxy` is set. Compose adds a Caddy service terminating TLS for the UI and API. The webhook token comparison is timing-safe. The error handler logs internals and returns generic messages for 500s.
 Verify: A supertest suite asserts unauthenticated `POST /api/calls` returns 401 and a wrong-origin preflight is rejected. The Playwright login flow passes.
+
 
 ### A8. First-live-call runbook
 Status: todo

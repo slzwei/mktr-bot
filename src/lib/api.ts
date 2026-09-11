@@ -12,21 +12,28 @@ export class ApiError extends Error {
   }
 }
 
+export type Operator = { id: string; email: string; role: "admin" | "operator" };
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const response = await fetch(url, {
+    credentials: "include",
     ...init,
     headers
   });
   const data = (await response.json()) as T & { error?: string };
+  if (response.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event("mktr:sign-in-required"));
   if (!response.ok) throw new ApiError(data.error ?? "Request failed.", response.status);
   return data;
 }
 
 export const api = {
+  session: () => request<{ user: Operator }>("/api/auth/session"),
+  login: (email: string, password: string) => request<{ user: Operator }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   bootstrap: () => request<BootstrapData>("/api/bootstrap"),
   createFlow: (name: string) => request<FlowDefinition>("/api/flows", { method: "POST", body: JSON.stringify({ name }) }),
   saveFlow: (flow: FlowDefinition) => request<FlowDefinition>(`/api/flows/${flow.id}`, { method: "PUT", body: JSON.stringify(flow) }),

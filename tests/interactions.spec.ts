@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { authenticatedHeaders } from "./api-headers";
 
 function wavFile() {
   const rate = 8_000;
@@ -116,7 +117,7 @@ test("palette drops land under the pointer, move, and save their position", asyn
   await page.locator(".flow-switcher select").selectOption(flow.id);
   await expect(page.locator(".react-flow__node").filter({ hasText: "New clip" })).toHaveCount(1);
   await expect.poll(async () => (await visibleNodeIds(page)).length).toBe(nodeCount + 1);
-  const response = await page.request.get(`/api/flows/${flow.id}`);
+  const response = await page.request.get(`/api/flows/${flow.id}`, { headers: await authenticatedHeaders(page) });
   expect((await response.json()).nodes.find((item: { id: string }) => item.id === persisted.id).position).toEqual(persisted.position);
 });
 
@@ -146,7 +147,7 @@ test("a dropped WAV uploads and plays through the web server with range support"
   const audio = card.locator("audio");
   await playAudio(audio);
   const source = (await audio.getAttribute("src"))!;
-  const response = await page.request.get(source, { headers: { Range: "bytes=0-31" } });
+  const response = await page.request.get(source, { headers: await authenticatedHeaders(page, { Range: "bytes=0-31" }) });
   expect(response.status()).toBe(206);
   expect(response.headers()["content-type"]).toContain("audio/wav");
   expect(response.headers()["content-range"]).toBe(`bytes 0-31/${wavFile().length}`);
@@ -175,7 +176,7 @@ test("an MP3 selected from the file chooser uploads and plays", async ({ page })
   await page.getByRole("button", { name: "Upload clip", exact: true }).click();
   const card = page.locator(".clip-card").filter({ has: page.getByRole("heading", { name: "MP3 voice preview", exact: true }) });
   await playAudio(card.locator("audio"));
-  const response = await page.request.get((await card.locator("audio").getAttribute("src"))!);
+  const response = await page.request.get((await card.locator("audio").getAttribute("src"))!, { headers: await authenticatedHeaders(page) });
   expect(response.headers()["content-type"]).toContain("audio/mpeg");
 });
 

@@ -1,0 +1,13 @@
+{$CADDY_DOMAIN:localhost} {
+    encode zstd gzip
+    # Streaming events must reach the browser immediately.
+    @events path /api/calls/*/events
+    handle @events {
+        reverse_proxy api:8787 {
+            flush_interval -1
+        }
+    }
+    handle {
+        reverse_proxy api:8787
+    }
+}

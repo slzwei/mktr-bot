@@ -23,7 +23,8 @@ import { CallConsole } from "./components/CallConsole";
 import { ClipLibrary } from "./components/ClipLibrary";
 import { FlowCanvas } from "./components/FlowCanvas";
 import { TrunkPanel } from "./components/TrunkPanel";
-import { api, ApiError } from "./lib/api";
+import { SessionGate } from "./components/SignIn";
+import { api, ApiError, type Operator } from "./lib/api";
 import type { BootstrapData, CallSession, Clip, FlowDefinition } from "./lib/domain";
 
 type View = "flows" | "clips" | "calls" | "trunk";
@@ -35,7 +36,7 @@ const navigation: { id: View; label: string; icon: typeof GitBranch }[] = [
   { id: "trunk", label: "SIP trunk", icon: RadioTower }
 ];
 
-function App() {
+function Workspace({ operator, signOut }: { operator: Operator; signOut: () => Promise<void> }) {
   const [data, setData] = useState<BootstrapData>();
   const [view, setView] = useState<View>("flows");
   const [activeFlowId, setActiveFlowId] = useState("");
@@ -154,7 +155,7 @@ function App() {
         <div className="topbar__status">
           <span className={`status-pill status-pill--${data.trunk.mode}`}><i /> {data.trunk.mode === "simulated" ? "Simulator" : "Singtel live"}</span>
           <button className="icon-button" title="Help" aria-label="Help"><CircleHelp size={18} /></button>
-          <button className="account-button"><span>SL</span><ChevronDown size={14} /></button>
+          <button className="account-button" aria-label="Sign out" title={`Sign out ${operator.email}`} onClick={signOut}><span>{operator.email.slice(0, 2).toUpperCase()}</span><ChevronDown size={14} /></button>
         </div>
       </header>
 
@@ -223,4 +224,6 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return <SessionGate>{(operator, signOut) => <Workspace operator={operator} signOut={signOut} />}</SessionGate>;
+}
