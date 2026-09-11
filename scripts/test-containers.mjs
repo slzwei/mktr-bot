@@ -91,7 +91,9 @@ try {
   for (const container of [names.api, names.worker]) {
     await waitFor(container, async () => await docker(["inspect", "--format", "{{.State.Health.Status}}", container]) === "healthy");
     assert.notEqual(await docker(["exec", container, "id", "-u"]), "0");
-    assert.equal(await docker(["exec", container, "cat", "/proc/1/comm"]), "node");
+    const pidOneExecutable = await docker(["exec", container, "readlink", "/proc/1/exe"]);
+    const nodeExecutable = await docker(["exec", container, "node", "-p", "process.execPath"]);
+    assert.equal(pidOneExecutable, nodeExecutable);
   }
   const api = await publishedUrl(names.api, 8787);
   const worker = await publishedUrl(names.worker, 8090);
