@@ -10,7 +10,7 @@ test("origination and SSE wait for the call UUID durability barrier without doub
   class StoreWithDelayedDisk extends InMemoryStore { override flush() { return barrier; } }
   class ObservedAdapter extends SimulatedTelephonyAdapter {
     originates = 0;
-    override async originate(input: Parameters<SimulatedTelephonyAdapter["originate"]>[0], uuid?: string) { this.originates++; return super.originate(input, uuid); }
+    override async originate(...args: Parameters<SimulatedTelephonyAdapter["originate"]>) { this.originates++; return super.originate(...args); }
   }
   const store = new StoreWithDelayedDisk(); const adapter = new ObservedAdapter(); const calls = new CallOrchestrator(store, adapter);
   const starts = Array.from({ length: 5 }, () => calls.start({ destination: "+6591234567", callerId: "+6562773211", flowId: "flow-prospect-intake" }));

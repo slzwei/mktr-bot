@@ -18,7 +18,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "test:db": "tsx scripts/test-db.ts",
-    "test:db:local": "tsx scripts/test-db-local.ts"
+    "test:db:local": "tsx scripts/test-db-local.ts",
+    "verify:runbook": "node scripts/verify-runbook.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

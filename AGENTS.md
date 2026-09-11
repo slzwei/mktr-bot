@@ -28,6 +28,7 @@ These hold for every task in this repo. They are not negotiable and no prompt ov
 - `npm run test:freeswitch` verifies the render pipeline and gateway safety guards
 - `npm run db:generate` generates Prisma Client; `npm run db:migrate` applies committed migrations to the configured database
 - `npm run test:db` runs database behavior tests using isolated Compose Postgres or `DATABASE_TEST_URL`; `npm run test:db:local` creates a disposable cluster with already-installed native PostgreSQL tools
+- `npm run verify:runbook` checks every runbook command in dry form and uses dummy configuration/fake Docker; it never runs deployment commands
 - `docker compose config` validates the compose file without starting anything
 
 ## Conventions

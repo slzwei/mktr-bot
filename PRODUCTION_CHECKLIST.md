@@ -66,8 +66,8 @@ Verify: A supertest suite asserts unauthenticated `POST /api/calls` returns 401 
 
 
 ### A8. First-live-call runbook
-Status: todo
-Evidence: 2026-09-11 filesystem audit: `docs/runbook-first-live-call.md` is absent; README live steps do not provide the A1-A7 gate, approved destination, one-call/60-second test limits, monitoring, abort, or rollback procedure. Dry-command verification cannot run against a missing runbook, and operator review is not recorded. After the runbook and prerequisites exist, Shawn must designate the sole approved test destination and review it; test fixture numbers are not that approval.
+Status: blocked
+Evidence: Runbook and operator helpers implemented; `npm run verify:runbook` passes syntax-only checks for all 14 Bash blocks/6 inline references, 12 dummy XML renders, 10 fake-Docker private fs_cli command fixtures, namespace fallback/originate rejection and first-call config fixtures. Missing: Shawn's dated review and designation of the single approved E.164 destination. Docker-dependent functional verification separately blocked: Docker not installed on host. No real registration, provider connection or call was attempted; operator checks are explicit in `docs/runbook-first-live-call.md`.
 Why: The first real call is the riskiest step and is done by the operator, not the agent.
 Done when: `docs/runbook-first-live-call.md` lists the prerequisites (A1 to A7 done, Singtel whitelist confirmed for the gateway public IP), the single approved test destination, caller ID `+6562773211`, the rule that `+6562773210` is never used, `MKTR_MAX_CONCURRENT_CALLS=1` and a 60 s max call for the test, how to watch `fs_cli` and api logs, the abort command, and rollback to simulator mode.
 Verify: Every command in the runbook has been run in dry form (no credentials) by the agent. The operator has reviewed it.
