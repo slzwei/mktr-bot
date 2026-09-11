@@ -46,7 +46,7 @@ test("Deepgram final latency follows the word end across silence and includes bu
   fake.peer().send(JSON.stringify(final("duplicate after end", 0.02)));
   fake.peer().send(JSON.stringify({ type: "UtteranceEnd", channel: [0, 1], last_word_end: 0.02 }));
   await waitFor(() => utterances.length === 1);
-  assert.deepEqual(utterances, [{ transcript: "can lah", latencyMs: 850 }]);
+  assert.deepEqual(utterances, [{ transcript: "can lah", latencyMs: 850, finalizedBy: "endpoint" }]);
 });
 
 for (const wordEnd of [undefined, 300]) test(`Deepgram omits latency for ${wordEnd === undefined ? "missing" : "inconsistent"} word timing`, async (t) => {
@@ -55,7 +55,7 @@ for (const wordEnd of [undefined, 300]) test(`Deepgram omits latency for ${wordE
   t.after(() => stream.close()); stream.write(Buffer.alloc(320));
   fake.peer().send(JSON.stringify(final("later", wordEnd)));
   await waitFor(() => utterances.length === 1);
-  assert.deepEqual(utterances, [{ transcript: "later" }]);
+  assert.deepEqual(utterances, [{ transcript: "later", finalizedBy: "endpoint" }]);
 });
 
 test("Deepgram reports abrupt provider closure once and rejects writes after closure", async (t) => {

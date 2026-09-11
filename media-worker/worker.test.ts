@@ -61,8 +61,9 @@ test("one speech stream carries a whole call: every listen window reuses it and 
 
   const first = randomUUID(); const second = randomUUID();
   assert.equal((await f.window("POST", first, 300)).status, 204);
-  f.callbacks[0].onUtterance({ transcript: "can lah", latencyMs: 40 });
+  f.callbacks[0].onUtterance({ transcript: "can lah", latencyMs: 40, finalizedBy: "utterance_end" });
   await waitFor(() => f.posts.length === 1);
+  assert.equal(f.posts[0].body.finalizedBy, "utterance_end", "the receipt says which marker ended the reply");
   assert.equal((await f.window("DELETE", first)).status, 204);
 
   socket.send(Buffer.alloc(640)); await waitFor(() => f.pcm() === 960);
@@ -196,14 +197,32 @@ test("Deepgram wire provider streams 8 kHz linear16 and endpoints final segments
     assert.equal(request.headers.authorization, "Token fake-deepgram-fixture");
     socket.on("message", (_data, binary) => { if (binary) frames++; });
   });
-  const utterances: string[] = []; const errors: Error[] = [];
+  const utterances: { transcript: string; finalizedBy?: string }[] = []; const errors: Error[] = [];
   const provider = new DeepgramSpeechToText({ apiKey: "fake-deepgram-fixture", endpoint: `ws://127.0.0.1:${(upstream.address() as { port: number }).port}/v1/listen` });
-  const stream = await provider.open({ onUtterance: (value) => utterances.push(value.transcript), onError: (error) => errors.push(error) }); t.after(() => stream.close());
+  const stream = await provider.open({ onUtterance: (value) => utterances.push({ transcript: value.transcript, finalizedBy: value.finalizedBy }), onError: (error) => errors.push(error) }); t.after(() => stream.close());
   stream.write(Buffer.alloc(320)); await waitFor(() => frames === 1);
   const result = { type: "Results", is_final: true, speech_final: false, start: 0, duration: 1, channel: { alternatives: [{ transcript: "can" }] } };
   peer!.send(JSON.stringify(result)); peer!.send(JSON.stringify(result));
   peer!.send(JSON.stringify({ ...result, speech_final: true, start: 1, channel: { alternatives: [{ transcript: "lah" }] } }));
   peer!.send(JSON.stringify({ type: "UtteranceEnd" }));
   await waitFor(() => utterances.length > 0);
-  assert.deepEqual(utterances, ["can lah"]); assert.equal(errors.length, 0);
+  assert.deepEqual(utterances, [{ transcript: "can lah", finalizedBy: "endpoint" }]); assert.equal(errors.length, 0);
+});
+
+test("an utterance ended by Deepgram's fallback is reported as utterance_end, not as the endpoint", async (t) => {
+  const upstream = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await once(upstream, "listening");
+  t.after(() => { for (const socket of upstream.clients) socket.terminate(); upstream.close(); });
+  let peer: WebSocket | undefined;
+  upstream.on("connection", (socket) => { peer = socket; });
+  const utterances: { transcript: string; finalizedBy?: string }[] = [];
+  const provider = new DeepgramSpeechToText({ apiKey: "fake-deepgram-fixture", endpoint: `ws://127.0.0.1:${(upstream.address() as { port: number }).port}/v1/listen` });
+  const stream = await provider.open({ onUtterance: (value) => utterances.push({ transcript: value.transcript, finalizedBy: value.finalizedBy }), onError: () => undefined });
+  t.after(() => stream.close());
+  await waitFor(() => peer !== undefined);
+  // A final segment that never carries speech_final: only the 1000 ms fallback can close it.
+  peer!.send(JSON.stringify({ type: "Results", is_final: true, speech_final: false, start: 0, duration: 1, channel: { alternatives: [{ transcript: "maybe next time" }] } }));
+  peer!.send(JSON.stringify({ type: "UtteranceEnd" }));
+  await waitFor(() => utterances.length > 0);
+  assert.deepEqual(utterances, [{ transcript: "maybe next time", finalizedBy: "utterance_end" }]);
 });

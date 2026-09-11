@@ -109,7 +109,7 @@ export function createApp(dependencies: AppDependencies) {
     response.json(await calls.markAnswered(z.string().parse(request.params.id)));
   });
   app.post("/api/calls/:id/transcript", mediaOnly, async (request, response) => {
-    const body = z.object({ transcript: z.string().trim().min(1).max(2_000), windowId: z.string().uuid(), utteranceId: z.string().uuid(), sttLatencyMs: z.number().min(0).max(60_000).optional() }).strict().parse(request.body);
+    const body = z.object({ transcript: z.string().trim().min(1).max(2_000), windowId: z.string().uuid(), utteranceId: z.string().uuid(), sttLatencyMs: z.number().min(0).max(60_000).optional(), finalizedBy: z.enum(["endpoint", "utterance_end"]).optional() }).strict().parse(request.body);
     response.json(await calls.submitTranscript(z.string().parse(request.params.id), body.transcript, body));
   });
   app.get("/api/media/calls/:id/window", mediaOnly, async (request, response) => {

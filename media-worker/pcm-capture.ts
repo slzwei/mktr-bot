@@ -1,7 +1,7 @@
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Utterance } from "./speech-to-text.js";
+import type { Utterance, UtteranceEnding } from "./speech-to-text.js";
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 /** A call's worth of replies with room to spare; a longer run stops appending rather than growing. */
@@ -24,7 +24,7 @@ export type CaptureSidecar = {
   totalBytes: number;
   frames: { offset: number; bytes: number; t: number }[];
   /** Every utterance the provider finalized on this stream. `windowId` is absent when no listen window was open, so the reply was discarded. */
-  utterances: { transcript: string; latencyMs?: number; t: number; windowId?: string }[];
+  utterances: { transcript: string; latencyMs?: number; t: number; windowId?: string; finalizedBy?: UtteranceEnding }[];
   /** True when the call produced more utterances than the sidecar records. */
   utterancesTruncated?: true;
 };
@@ -110,6 +110,7 @@ export function createPcmCapture(options: PcmCaptureOptions): PcmCapture {
           if (failed || closing) return;
           if (sidecar.utterances.length >= MAX_UTTERANCES) { sidecar.utterancesTruncated = true; return; }
           sidecar.utterances.push({ transcript: value.transcript, ...(value.latencyMs !== undefined ? { latencyMs: value.latencyMs } : {}),
+            ...(value.finalizedBy === undefined ? {} : { finalizedBy: value.finalizedBy }),
             t: Math.round((receivedAt - openedAt) * 1000) / 1000, ...(windowId === undefined ? {} : { windowId }) });
         },
         close() {

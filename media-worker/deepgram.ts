@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 import { z } from "zod";
 import { LISTEN_ENDPOINTING } from "../src/lib/domain.js";
-import type { ListenSettings, SpeechCallbacks, SpeechStream, SpeechToText } from "./speech-to-text.js";
+import type { ListenSettings, SpeechCallbacks, SpeechStream, SpeechToText, UtteranceEnding } from "./speech-to-text.js";
 
 const alternativesSchema = z.object({ alternatives: z.array(z.object({
   transcript: z.string().max(2000), words: z.array(z.object({ end: z.number().finite().nonnegative() })).max(2000).optional()
@@ -110,7 +110,7 @@ export class DeepgramSpeechToText implements SpeechToText {
       if (!opened) fail(new Error("Deepgram streaming connection was cancelled."));
       else close();
     };
-    const finishUtterance = () => {
+    const finishUtterance = (finalizedBy: UtteranceEnding) => {
       const transcript = pieces.join(" ").trim();
       if (!transcript || completed) return;
       completed = true;
@@ -121,7 +121,7 @@ export class DeepgramSpeechToText implements SpeechToText {
       const estimated = audioOriginAt !== undefined && lastWordEnd !== undefined && lastWordEnd <= audioSeconds + 0.1
         ? now() - (audioOriginAt + lastWordEnd * 1000) : undefined;
       const latencyMs = estimated !== undefined && estimated >= 0 && estimated <= 60_000 ? Math.round(estimated) : undefined;
-      callbacks.onUtterance({ transcript, ...(latencyMs !== undefined ? { latencyMs } : {}) });
+      callbacks.onUtterance({ transcript, finalizedBy, ...(latencyMs !== undefined ? { latencyMs } : {}) });
     };
     socket.on("message", (data) => {
       if (closed || completed) return;
@@ -137,10 +137,10 @@ export class DeepgramSpeechToText implements SpeechToText {
             if (pieces.join(" ").length > 2000) { fail(new Error("Deepgram utterance exceeded the transcript limit.")); return; }
             for (const word of alternative?.words ?? []) lastWordEnd = Math.max(lastWordEnd ?? 0, word.end);
           }
-          if (result.speech_final) finishUtterance();
+          if (result.speech_final) finishUtterance("endpoint");
         } else if (result.type === "UtteranceEnd") {
           if (result.last_word_end !== undefined && result.last_word_end >= 0) lastWordEnd = Math.max(lastWordEnd ?? 0, result.last_word_end);
-          finishUtterance();
+          finishUtterance("utterance_end");
         } else if (result.type === "Error") fail(new Error("Deepgram reported a transcription error."));
       } catch (error) {
         fail(new Error("Invalid Deepgram streaming response.", { cause: error }));

@@ -69,7 +69,7 @@ test("capture tees every accepted frame byte-for-byte with its arrival time, inc
   await new Promise((resolve) => setTimeout(resolve, 30));
   socket.send(second);
   await waitFor(() => f.providerBytes.length === 2);
-  f.callbacks().onUtterance({ transcript: "can lah", latencyMs: 850 });
+  f.callbacks().onUtterance({ transcript: "can lah", latencyMs: 850, finalizedBy: "endpoint" });
   await waitFor(() => f.posts.length === 1);
   const closing = once(socket, "close"); socket.close(); await closing;
   const { sidecar, streamId } = await f.sidecar();
@@ -80,8 +80,8 @@ test("capture tees every accepted frame byte-for-byte with its arrival time, inc
   assert.deepEqual(sidecar.frames.map(({ offset, bytes }) => ({ offset, bytes })), [{ offset: 0, bytes: 320 }, { offset: 320, bytes: 640 }]);
   assert.ok(sidecar.frames[0].t >= 0 && sidecar.frames[0].t < 50, `first frame arrived at ${sidecar.frames[0].t} ms`);
   assert.ok(sidecar.frames[1].t - sidecar.frames[0].t >= 25, "arrival spacing is preserved");
-  assert.deepEqual(sidecar.utterances.map(({ transcript, latencyMs, windowId }) => ({ transcript, latencyMs, windowId })),
-    [{ transcript: "can lah", latencyMs: 850, windowId: f.windowId }]);
+  assert.deepEqual(sidecar.utterances.map(({ transcript, latencyMs, windowId, finalizedBy }) => ({ transcript, latencyMs, windowId, finalizedBy })),
+    [{ transcript: "can lah", latencyMs: 850, windowId: f.windowId, finalizedBy: "endpoint" }]);
   assert.ok(sidecar.utterances[0].t >= sidecar.frames[1].t);
   assert.ok(Date.parse(sidecar.closedAt) >= Date.parse(sidecar.openedAt));
   assert.deepEqual(f.errors, []); assert.deepEqual(f.captureErrors, []);

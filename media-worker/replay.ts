@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { CaptureSidecar } from "./pcm-capture.js";
-import type { SpeechStream, SpeechToText } from "./speech-to-text.js";
+import type { SpeechStream, SpeechToText, UtteranceEnding } from "./speech-to-text.js";
 
 /** 8 kHz signed 16-bit mono: sixteen bytes per millisecond. */
 export const BYTES_PER_MS = 16;
@@ -23,7 +23,7 @@ const sidecarSchema = z.object({
   version: z.literal(1), callId: z.string(), streamId: z.string(), encoding: z.literal("linear16"), sampleRate: z.literal(8000), channels: z.literal(1),
   openedAt: z.string(), closedAt: z.string(), totalBytes: z.number().int().nonnegative(),
   frames: z.array(z.object({ offset: z.number().int().nonnegative(), bytes: z.number().int().positive(), t: z.number().finite().nonnegative() })),
-  utterances: z.array(z.object({ transcript: z.string(), latencyMs: z.number().finite().nonnegative().optional(), t: z.number().finite().nonnegative(), windowId: z.string().optional() })),
+  utterances: z.array(z.object({ transcript: z.string(), latencyMs: z.number().finite().nonnegative().optional(), t: z.number().finite().nonnegative(), windowId: z.string().optional(), finalizedBy: z.enum(["endpoint", "utterance_end"]).optional() })),
   utterancesTruncated: z.literal(true).optional()
 });
 
@@ -141,6 +141,8 @@ export type ReplayResult = {
   speechEndToTranscriptMs?: number;
   /** The engine's own estimate of the same interval, when it reports one. */
   providerLatencyMs?: number;
+  /** Which marker ended the reply: the configured endpoint, or the fixed 1000 ms UtteranceEnd fallback. */
+  finalizedBy?: UtteranceEnding;
   openMs?: number;
   framesBufferedBeforeOpen: number;
   audioMs: number;
@@ -181,6 +183,7 @@ export async function replayCapture(capture: Capture, engine: SpeechToText, opti
       const at = performance.now();
       result.transcript = utterance.transcript;
       result.providerLatencyMs = utterance.latencyMs;
+      result.finalizedBy = utterance.finalizedBy;
       result.utteranceAtMs = Math.round(at - streamStartedAt.value);
       if (speechEndAt !== undefined) result.speechEndToTranscriptMs = Math.round(at - speechEndAt);
       settle();

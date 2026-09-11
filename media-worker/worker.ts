@@ -14,7 +14,7 @@ const audioPath = new RegExp(`^/audio/(${uuid})$`, "i");
 const windowPath = new RegExp(`^/calls/(${uuid})/window/(${uuid})$`, "i");
 const endpointingMs = z.number().int().min(LISTEN_ENDPOINTING.minMs).max(LISTEN_ENDPOINTING.maxMs);
 const callSchema = z.object({ status: z.string(), listenWindowId: z.string().optional(), endpointingMs: endpointingMs.optional() });
-const utteranceSchema = z.object({ transcript: z.string().trim().min(1).max(2000), latencyMs: z.number().finite().min(0).max(60_000).optional() });
+const utteranceSchema = z.object({ transcript: z.string().trim().min(1).max(2000), latencyMs: z.number().finite().min(0).max(60_000).optional(), finalizedBy: z.enum(["endpoint", "utterance_end"]).optional() });
 /** Five concurrent calls matches the trunk ceiling; reservations outlive their audio only until receipts settle. */
 const MAX_CALLS = 5;
 const MAX_RESERVATIONS = 25;
@@ -273,8 +273,8 @@ export function createMediaWorker(options: WorkerOptions) {
       closeAudio();
     };
 
-    const deliver = (windowId: string, value: { transcript: string; latencyMs?: number }) => {
-      const body = { transcript: value.transcript, windowId, utteranceId: randomUUID(), sttLatencyMs: value.latencyMs };
+    const deliver = (windowId: string, value: Utterance) => {
+      const body = { transcript: value.transcript, windowId, utteranceId: randomUUID(), sttLatencyMs: value.latencyMs, finalizedBy: value.finalizedBy };
       entry.receipts += 1;
       // Neither the window closing nor the audio ending cancels this receipt: the API may move
       // on before its reply arrives, and a lost reply requires retrying the same receipt.

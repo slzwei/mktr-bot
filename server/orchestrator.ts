@@ -26,7 +26,7 @@ import { assertAllowedCallerId, type TelephonyAdapter, type TelephonyEvent } fro
 const activeStatuses = ACTIVE_CALL_STATUSES;
 
 type PlaybackDelay = (clip: Clip, mode: TelephonyAdapter["mode"]) => number;
-export type TranscriptReceipt = { windowId: string; utteranceId: string; sttLatencyMs?: number };
+export type TranscriptReceipt = { windowId: string; utteranceId: string; sttLatencyMs?: number; finalizedBy?: "endpoint" | "utterance_end" };
 export class ListenWindowClosedError extends Error { readonly status = 409; }
 
 const sttProvider = () => process.env.MKTR_STT_PROVIDER || "deepgram";
@@ -56,7 +56,7 @@ export class CallOrchestrator {
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly listenTimers = new Map<string, NodeJS.Timeout>();
   // A turn opens when an accepted transcript receipt carries speech-end timing and closes when the reply clip command completes.
-  private readonly turns = new Map<string, { speechEndedAt: number; provider: string }>();
+  private readonly turns = new Map<string, { speechEndedAt: number; provider: string; finalizedBy?: string }>();
   private readonly unsubscribeAdapter?: () => void;
   private readonly unsubscribeConnection?: () => void;
   private stopping = false;
@@ -330,7 +330,7 @@ export class CallOrchestrator {
       // speech-end anchor is receipt arrival minus that estimate. Unknown timing produces no turn sample.
       if (receipt?.sttLatencyMs !== undefined) {
         voiceMetrics.observeSttLatency(receipt.sttLatencyMs, sttProvider());
-        this.turns.set(session.id, { speechEndedAt: receivedAt - receipt.sttLatencyMs, provider: sttProvider() });
+        this.turns.set(session.id, { speechEndedAt: receivedAt - receipt.sttLatencyMs, provider: sttProvider(), finalizedBy: receipt.finalizedBy });
       } else this.turns.delete(session.id);
       session.lastUtteranceId = receipt?.utteranceId;
       session.listenWindowId = undefined;
@@ -519,7 +519,7 @@ export class CallOrchestrator {
       this.turns.delete(session.id);
       const turnMs = Math.round(performance.now() - turn.speechEndedAt);
       voiceMetrics.observeTurnLatency(turnMs, turn.provider);
-      logger.info({ callId: session.id, nodeId: node.id, turnMs, provider: turn.provider }, "Turn completed: speech end to reply playback");
+      logger.info({ callId: session.id, nodeId: node.id, turnMs, provider: turn.provider, finalizedBy: turn.finalizedBy }, "Turn completed: speech end to reply playback");
     }
     return clip;
   }
