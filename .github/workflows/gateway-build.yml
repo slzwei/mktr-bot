@@ -1,0 +1,54 @@
+name: Gateway image build
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gateway-build.yml
+      - .dockerignore
+      - docker-compose.yml
+      - package.json
+      - package-lock.json
+      - scripts/render-freeswitch.ts
+      - server/gateway-security.ts
+      - server/inbound-config.ts
+      - src/lib/domain.ts
+      - telephony/freeswitch/Dockerfile
+      - telephony/freeswitch/build-source.sh
+      - telephony/freeswitch/entrypoint.sh
+      - telephony/freeswitch/modules.conf
+      - telephony/freeswitch/conf/**
+      - '!telephony/freeswitch/conf/**/*.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/gateway-build.yml
+      - .dockerignore
+      - docker-compose.yml
+      - package.json
+      - package-lock.json
+      - scripts/render-freeswitch.ts
+      - server/gateway-security.ts
+      - server/inbound-config.ts
+      - src/lib/domain.ts
+      - telephony/freeswitch/Dockerfile
+      - telephony/freeswitch/build-source.sh
+      - telephony/freeswitch/entrypoint.sh
+      - telephony/freeswitch/modules.conf
+      - telephony/freeswitch/conf/**
+      - '!telephony/freeswitch/conf/**/*.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gateway-build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the pinned gateway image
+        run: docker build --progress=plain --file telephony/freeswitch/Dockerfile --tag mktr-freeswitch:ci .

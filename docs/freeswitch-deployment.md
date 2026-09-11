@@ -2,7 +2,9 @@
 
 This is operator deployment documentation. The agent has not started FreeSWITCH, registered the gateway, or placed a call. The agent can render dummy configuration with `npm run render:freeswitch -- --dry-run` without credentials or network access. Follow `docs/runbook-first-live-call.md` for the later operator gates.
 
-The optional gateway is built from `telephony/freeswitch/Dockerfile`. It compiles a small module set, including `mod_audio_stream` with TLS support, from public pinned source revisions. This replaces the unverified `signalwire/freeswitch:1.10.12` image; no paid/private package repository is needed. Source revision existence was checked against GitHub on 2026-09-11; the container build remains unverified here because Docker is not installed on host.
+The optional gateway is built from `telephony/freeswitch/Dockerfile`. It compiles a small module set, including `mod_audio_stream` with TLS support, from public pinned source revisions. This replaces the unverified `signalwire/freeswitch:1.10.12` image; no paid/private package repository is needed. Source revision existence was checked against GitHub on 2026-09-11. Docker is not installed on the local development host; the separate **Gateway image build** GitHub workflow validates the Docker build on an Ubuntu runner, with its result recorded in the checklist evidence.
+
+`.github/workflows/gateway-build.yml` builds the complete image, including the renderer and shared-library/module checks, with a 45-minute timeout. It runs for main-branch pushes and pull requests that change the build inputs, renderer, gateway configuration, shared domain or package files; documentation-only evidence updates do not rebuild the image. Shawn can also select **Run workflow** in GitHub Actions for a fresh build. The job does not start FreeSWITCH, register a gateway, publish an image, read provider credentials or place calls. A successful build establishes that the pinned source and runtime image assemble; registration, module loading and real media remain separate operator checks.
 
 | Component | Pinned revision |
 | --- | --- |
