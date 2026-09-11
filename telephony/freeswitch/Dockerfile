@@ -25,7 +25,7 @@ RUN /usr/local/bin/build-source
 
 FROM node:24.14.0-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libcurl4 libedit2 libevent-2.1-7 libevent-openssl-2.1-7 libjpeg62-turbo \
+    ca-certificates libcurl4 libedit2 libevent-2.1-7 libevent-openssl-2.1-7 libevent-pthreads-2.1-7 libjpeg62-turbo \
     libopus0 libpcre2-8-0 libpng16-16 libsndfile1 libspeex1 libspeexdsp1 libsqlite3-0 libssl3 \
     libtiff6 libuuid1 openssl zlib1g && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/ /usr/local/
@@ -33,11 +33,16 @@ COPY --from=builder /etc/ld.so.conf.d/mktr-freeswitch.conf /etc/ld.so.conf.d/mkt
 COPY --from=renderer /renderer/ /opt/mktr/
 COPY telephony/freeswitch/conf /opt/mktr/freeswitch-conf
 COPY telephony/freeswitch/entrypoint.sh /usr/local/bin/mktr-freeswitch
-RUN ldconfig && \
-    ldd /usr/local/freeswitch/bin/freeswitch /usr/local/freeswitch/mod/*.so > /tmp/linked-libraries && \
-    ! grep -q 'not found' /tmp/linked-libraries && \
-    rm /tmp/linked-libraries && \
-    mkdir -p /etc/freeswitch /var/lib/freeswitch/db /var/lib/freeswitch/recordings/mktr /var/lib/freeswitch/recordings/sessions /var/log/freeswitch /run/freeswitch && \
+RUN set -eu; \
+    ldconfig; \
+    if ! ldd /usr/local/freeswitch/bin/freeswitch /usr/local/freeswitch/mod/*.so > /tmp/linked-libraries 2>&1; then \
+      cat /tmp/linked-libraries >&2; exit 1; \
+    fi; \
+    if grep -q 'not found' /tmp/linked-libraries; then \
+      cat /tmp/linked-libraries >&2; exit 1; \
+    fi; \
+    rm /tmp/linked-libraries; \
+    mkdir -p /etc/freeswitch /var/lib/freeswitch/db /var/lib/freeswitch/recordings/mktr /var/lib/freeswitch/recordings/sessions /var/log/freeswitch /run/freeswitch; \
     chown -R node:node /etc/freeswitch /var/lib/freeswitch /var/log/freeswitch /run/freeswitch
 ENV PATH="/usr/local/freeswitch/bin:${PATH}" \
     MKTR_FREESWITCH_TEMPLATE_DIR=/opt/mktr/freeswitch-conf \
