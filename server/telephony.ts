@@ -121,9 +121,9 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
   async playClip(providerCallId: string, clip: Clip, playbackId = randomUUID()): Promise<void> {
     this.assertUuid(providerCallId);
     this.assertUuid(playbackId);
-    if (!clip.assetUrl) throw new Error(`Live playback requires an uploaded file for ${clip.name}.`);
-    const filename = clip.assetUrl.split("/").at(-1);
-    if (!filename || !/^[a-f0-9-]+\.(wav|mp3)$/i.test(filename)) throw new Error("Clip media path is invalid.");
+    if (!clip.telephonyAssetUrl) throw new Error(`Live playback requires an uploaded file for ${clip.name}.`);
+    const filename = clip.telephonyAssetUrl.split("/").at(-1);
+    if (!filename || !/^[a-f0-9-]+\.wav$/i.test(filename)) throw new Error("Clip media path is invalid.");
     if (!/^\/[a-zA-Z0-9/_-]+$/.test(config.freeswitch.mediaDirectory)) throw new Error("FreeSWITCH media directory is invalid.");
     await this.client.command(`api uuid_setvar ${providerCallId} mktr_playback_id ${playbackId}`);
     await this.client.command(`api uuid_broadcast ${providerCallId} ${config.freeswitch.mediaDirectory}/${filename} aleg`);

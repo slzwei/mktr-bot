@@ -431,7 +431,7 @@ export class CallOrchestrator {
   private async playNode(session: CallSession, node: FlowNode, playbackId: string): Promise<Clip> {
     if (!node.data.clipId) throw new Error(node.data.label + " has no audio clip.");
     const clip = this.store.getClip(node.data.clipId);
-    if (!clip || clip.status !== "ready") throw new Error(node.data.label + " needs a ready audio clip.");
+    if (!clip || !["ready", "archived"].includes(clip.status)) throw new Error(node.data.label + " needs a ready audio clip.");
     await this.transition(session, "playing", "clip_playing", "Playing " + node.data.label, "Pre-recorded clip", node.id);
     await this.adapter.playClip(session.providerCallId, clip, playbackId);
     return clip;

@@ -72,6 +72,7 @@ export type Clip = {
   status: "ready" | "processing" | "archived";
   assetUrl?: string;
   previewUrl?: string;
+  telephonyAssetUrl?: string;
   originalFilename?: string;
   usedBy: number;
   updatedAt: string;

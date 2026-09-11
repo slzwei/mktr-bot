@@ -96,11 +96,12 @@ Done when: The OpenAI classify call uses `AbortSignal.timeout(MKTR_CLASSIFIER_TI
 Verify: The classifier fixture test passes at 100 percent on rules. A timeout test with a hanging fake provider returns the rules result within 2 s.
 
 ### B4. Validation and media pipeline
-Status: todo
-Evidence: 2026-09-11 HTTP/media probes: a flow containing an unsupported node type, numeric node ID, and null position returns 200; text bytes labelled WAV upload with 201. A generated 3 s, 44.1 kHz stereo MP3 remains byte-identical MP3 at 44100 Hz/2 channels by ffprobe, while the API accepts a supplied duration of 123 s. DELETE flow/clip returns 404; no published-version archive logic exists and multer errors lack 400/413 mapping (`server/index.ts:173`). Both required validation/transcoding expectations fail.
+Status: done
+Evidence: 2026-09-11: build/unit suites, all 14 Chromium tests and the native PostgreSQL suite pass; `44.1 kHz stereo MP3 upload keeps its preview and produces probed 8 kHz mono 16-bit WAV` verifies canonical codec/rate/channels/duration plus byte-identical original preview and replacement of a supplied 123-second hint. HTTP tests prove malformed flow/text-WAV rejection, multer 400/413, immutable-version archival after flow deletion, unreferenced-file deletion and interrupted-upload quarantine.
 Why: Flow save stores the raw body, clip duration is client-supplied, and MP3 may not play in FreeSWITCH.
 Done when: zod schemas validate `FlowDefinition` on PUT. Upload checks magic bytes, probes duration server-side, and transcodes every upload to 8 kHz mono 16-bit WAV for FreeSWITCH while keeping the original for preview. `DELETE /api/clips/:id` archives a clip referenced by a published version and deletes otherwise. `DELETE /api/flows/:id` exists. multer errors map to 400 or 413.
 Verify: An e2e test uploads a 44.1 kHz stereo MP3 and asserts the FreeSWITCH file is 8 kHz mono WAV with duration within 1 s of the probe. Text bytes named `.wav` are rejected with 400. A supplied duration that disagrees with the probe is replaced by the probed value. A malformed flow PUT returns 400.
+
 
 ### B5. SSE robustness
 Status: todo

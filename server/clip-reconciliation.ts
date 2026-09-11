@@ -35,6 +35,19 @@ export async function reconcileClipStorage(store: Store, directory: string): Pro
   await store.flush();
   const entries = await readdir(directory, { withFileTypes: true });
   for (const entry of entries) {
+    if (entry.isDirectory() && entry.name === ".uploads") {
+      // Startup runs before accepting requests, so every staged upload is from an interrupted process.
+      const staging = path.join(directory, entry.name);
+      for (const temporary of await readdir(staging, { withFileTypes: true })) {
+        if (!temporary.isFile()) continue;
+        const quarantine = path.join(directory, "orphaned");
+        await mkdir(quarantine, { recursive: true, mode: 0o700 });
+        const filename = `${Date.now()}-${randomUUID()}-${temporary.name}`;
+        await rename(path.join(staging, temporary.name), path.join(quarantine, filename));
+        result.quarantinedFiles.push(filename);
+      }
+      continue;
+    }
     if (!entry.isFile() || referenced.has(entry.name)) continue;
     // Preserve all unclaimed bytes, including incomplete/failed uploads, for operator recovery.
     const quarantine = path.join(directory, "orphaned");

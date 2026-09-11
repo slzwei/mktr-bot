@@ -2,11 +2,12 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import multer from "multer";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Logger } from "pino";
 import { z } from "zod";
-import { CALLER_IDS, type FlowDefinition, type TestCallInput } from "../src/lib/domain.js";
+import { CALLER_IDS, type TestCallInput } from "../src/lib/domain.js";
 import { createAuth, requireAdmin, requireMediaGateway, type AuthStore } from "./auth.js";
 import { config } from "./config.js";
 import type { TranscriptClassifier } from "./classifier.js";
@@ -14,10 +15,12 @@ import { validateFlow } from "./flow-validation.js";
 import { logger as defaultLogger, withLogContext } from "./logger.js";
 import { voiceMetrics, type VoiceMetrics } from "./metrics.js";
 import type { TelephonyHealth } from "./health.js";
+import { HttpError } from "./http-error.js";
+import { clipUploadFieldsSchema, flowDefinitionSchema } from "./request-schemas.js";
 import type { CallOrchestrator } from "./orchestrator.js";
 import type { Store } from "./store.js";
 import { getTrunkStatus, type TelephonyAdapter } from "./telephony.js";
-import { clipUpload, ensureClipStorage, uploadedClipAssetUrl } from "./uploads.js";
+import { clipUpload, discardTemporaryUpload, ensureClipStorage, processUploadedClip, removeClipFiles } from "./uploads.js";
 
 export type AppDependencies = {
   store: Store;
@@ -132,8 +135,8 @@ export function createApp(dependencies: AppDependencies) {
   app.put("/api/flows/:id", async (request, response) => {
     const existing = await store.getFlow(request.params.id);
     if (!existing) return response.status(404).json({ error: "Flow not found." });
-    const flow = request.body as FlowDefinition;
-    if (!flow || flow.id !== existing.id || !Array.isArray(flow.nodes) || !Array.isArray(flow.edges)) {
+    const flow = flowDefinitionSchema.parse(request.body);
+    if (flow.id !== existing.id) {
       return response.status(400).json({ error: "Invalid flow payload." });
     }
     const draft = store.saveFlow({ ...flow, status: "draft", version: existing.version });
@@ -150,6 +153,13 @@ export function createApp(dependencies: AppDependencies) {
     await store.flush();
     return response.json({ flow: published, validation });
   });
+  app.delete("/api/flows/:id", async (request, response) => {
+    z.object({}).strict().parse(request.body ?? {});
+    const deleted = store.deleteFlow(request.params.id);
+    if (!deleted) return response.status(404).json({ error: "Flow not found." });
+    await store.flush();
+    return response.json({ deleted: true, id: deleted.id });
+  });
   app.post("/api/clips", async (request, response) => {
     const body = z.object({ name: z.string().trim().min(1).max(80), durationSeconds: z.number().int().min(1).max(180) }).strict().parse(request.body);
     const clip = store.createClip(body.name, body.durationSeconds);
@@ -157,12 +167,28 @@ export function createApp(dependencies: AppDependencies) {
     return response.status(201).json(clip);
   });
   app.post("/api/clips/upload", clipUpload.single("file"), async (request, response) => {
-    const body = z.object({ name: z.string().trim().min(1).max(80), durationSeconds: z.coerce.number().int().min(1).max(180) }).strict().parse(request.body);
-    if (!request.file) return response.status(400).json({ error: "Select a WAV or MP3 file." });
-    const extension = request.file.filename.toLowerCase().endsWith(".mp3") ? "mp3" : "wav";
-    const clip = store.createClip(body.name, body.durationSeconds, { format: extension, originalFilename: request.file.originalname, assetUrl: uploadedClipAssetUrl(request.file.filename) });
+    try {
+      const body = clipUploadFieldsSchema.parse(request.body);
+      if (!request.file) throw new HttpError(400, "Select a WAV or MP3 file.");
+      const { durationSeconds, ...asset } = await processUploadedClip(request.file);
+      const clip = store.createClip(body.name, durationSeconds, asset);
+      await store.flush();
+      return response.status(201).json(clip);
+    } finally { await discardTemporaryUpload(request.file); }
+  });
+  app.delete("/api/clips/:id", async (request, response) => {
+    z.object({}).strict().parse(request.body ?? {});
+    const clip = store.getClip(request.params.id);
+    if (!clip) return response.status(404).json({ error: "Clip not found." });
+    if (store.isClipReferencedByPublishedVersion(clip.id)) {
+      const archived = store.saveClip({ ...clip, status: "archived" });
+      await store.flush();
+      return response.json({ archived: true, clip: archived });
+    }
+    const deleted = store.deleteClip(clip.id);
     await store.flush();
-    return response.status(201).json(clip);
+    if (deleted) await removeClipFiles(deleted);
+    return response.json({ archived: false, deleted: true, id: clip.id });
   });
   app.post("/api/classify", async (request, response) => {
     const body = z.object({ transcript: z.string().trim().min(1).max(2_000) }).strict().parse(request.body);
@@ -205,6 +231,11 @@ export function createApp(dependencies: AppDependencies) {
   app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
     if (response.headersSent) { response.end(); return; }
     if (error instanceof z.ZodError) return response.status(400).json({ error: error.issues[0]?.message ?? "Invalid request." });
+    if (error instanceof multer.MulterError) return response.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({ error: error.code === "LIMIT_FILE_SIZE" ? "Audio clips must be 10 MB or smaller." : "Invalid multipart audio upload." });
+    if (error instanceof HttpError) {
+      if (error.cause || error.status >= 500) logger.error({ err: error, requestId: response.locals.requestId }, "Request could not be completed");
+      return response.status(error.status).json({ error: error.message });
+    }
     const statusCode = (error as { status?: number })?.status;
     if (statusCode === 409) return response.status(409).json({ error: "The listen window has closed." });
     if (statusCode === 400 || statusCode === 413 || statusCode === 404) return response.status(statusCode).json({ error: statusCode === 413 ? "Request is too large." : statusCode === 404 ? "Resource not found." : "Invalid request." });

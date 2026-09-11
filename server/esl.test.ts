@@ -83,7 +83,7 @@ test("originate BACKGROUND_JOB failure records the cause and releases the slot",
 test("answer and PLAYBACK_STOP drive a flow to exactly one provider hangup", async (t) => {
   const { server, client } = await fixture(t);
   const store = new InMemoryStore();
-  const clip = store.createClip("Fixture", 1, { assetUrl: "/media/clips/11111111-1111-1111-1111-111111111111.wav", format: "wav" });
+  const clip = store.createClip("Fixture", 1, { assetUrl: "/media/clips/22222222-2222-2222-2222-222222222222.mp3", telephonyAssetUrl: "/media/clips/11111111-1111-1111-1111-111111111111.wav", format: "wav" });
   const flow: FlowDefinition = { id: "event-flow", name: "Event flow", version: 1, status: "published", startNodeId: "s", updatedAt: new Date().toISOString(),
     nodes: [{ id: "s", type: "start", position: { x: 0, y: 0 }, data: { label: "Start" } },
       { id: "p", type: "playClip", position: { x: 1, y: 0 }, data: { label: "Clip", clipId: clip.id } },
@@ -92,9 +92,12 @@ test("answer and PLAYBACK_STOP drive a flow to exactly one provider hangup", asy
   store.saveFlow(flow);
   const calls = new CallOrchestrator(store, new FreeSwitchEslAdapter(client, true), new RuleClassifier(), () => 0);
   const call = await calls.start({ ...input, flowId: flow.id });
+  store.saveClip({ ...clip, status: "archived" });
   server.event("CHANNEL_ANSWER", { "Unique-ID": call.providerCallId });
   await waitFor(() => server.commands.some((command) => command.startsWith("api uuid_broadcast")));
   assert.equal(calls.get(call.id)?.status, "playing");
+  assert.ok(server.commands.some((command) => command.includes("uuid_broadcast") && command.includes("11111111-1111-1111-1111-111111111111.wav")));
+  assert.ok(server.commands.every((command) => !command.includes("22222222-2222-2222-2222-222222222222.mp3")));
   const playbackId = server.commands.find((command) => command.includes("mktr_playback_id"))!.split(" ").at(-1)!;
   server.event("PLAYBACK_STOP", { "Unique-ID": call.providerCallId, variable_mktr_playback_id: playbackId });
   await waitFor(() => calls.get(call.id)?.status === "ended");

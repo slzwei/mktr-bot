@@ -3,7 +3,7 @@ import type { Clip } from "../lib/domain";
 
 export function ClipPlayer({ clip }: { clip: Clip }) {
   const [error, setError] = useState(false);
-  const source = clip.assetUrl ?? clip.previewUrl;
+  const source = clip.previewUrl ?? clip.assetUrl;
 
   if (!source) return <p className="clip-player__message">No audio file attached. Upload a WAV or MP3 to preview it.</p>;
 
