@@ -108,3 +108,5 @@ Channel inventory and variable inspection use the [FreeSWITCH API command interf
 - A4: Install Debian's `libpcre2-dev` in the builder and `libpcre2-8-0` in the runtime because the pinned FreeSWITCH configure script requires PCRE2; the first GitHub gateway build exposed the obsolete PCRE1 dependency before any gateway process could start.
 - B6: Compare PID 1’s executable with Node’s executable during image verification because Node 24 reports a Linux thread name of `MainThread`; a thread label does not establish which executable owns PID 1.
 - A4: Include `libevent-pthreads-2.1-7` in the gateway runtime because `mod_audio_stream` links libevent's threading support, and print shared-library check failures because successful compilation alone must not hide an incomplete runtime image.
+
+- B6: Run container HTTP probes inside the disposable internal network because Docker intentionally suppresses host publication on that network; this preserves network isolation while testing the images through their real HTTP interfaces.

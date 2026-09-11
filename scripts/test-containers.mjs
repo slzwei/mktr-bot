@@ -45,10 +45,26 @@ async function waitFor(name, probe, timeout = 90_000) {
   throw new Error(`${name} did not become ready within ${timeout} ms.`, { cause: lastError });
 }
 
-async function publishedUrl(container, port) {
-  const address = await docker(["port", container, `${port}/tcp`]);
-  assert.match(address, /^127\.0\.0\.1:\d+$/);
-  return `http://${address}`;
+// Executed inside the API fixture: internal Docker networks intentionally do not publish host ports.
+async function probeRuntime() {
+  const assert = (await import("node:assert/strict")).default;
+  const api = "http://127.0.0.1:8787";
+  const health = await fetch(`${api}/api/health`, { signal: AbortSignal.timeout(3000) });
+  assert.equal(health.status, 200);
+  assert.equal((await health.json()).mode, "simulated");
+  const workerHealth = await fetch("http://media-worker:8090/health", { signal: AbortSignal.timeout(3000) });
+  assert.equal(workerHealth.status, 200);
+  assert.equal((await workerHealth.json()).enabled, false);
+  assert.equal((await fetch(`${api}/api/calls`, { method: "POST", signal: AbortSignal.timeout(3000) })).status, 401);
+  const login = await fetch(`${api}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", Origin: process.env.MKTR_WEB_ORIGIN },
+    body: JSON.stringify({ email: process.env.MKTR_ADMIN_EMAIL, password: process.env.MKTR_ADMIN_PASSWORD }), signal: AbortSignal.timeout(5000) });
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get("set-cookie");
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Secure/);
+  const bootstrap = await fetch(`${api}/api/bootstrap`, { headers: { Cookie: cookie.split(";")[0] }, signal: AbortSignal.timeout(3000) });
+  assert.equal(bootstrap.status, 200);
+  console.log("PASS: container HTTP health, disabled streaming, unauthenticated rejection, seeded login and authenticated bootstrap.");
 }
 
 async function stopCleanly(container) {
@@ -82,12 +98,12 @@ try {
 
   containers.push(names.api);
   await docker(["run", "--detach", "--name", names.api, "--network", names.network, "--network-alias", "api",
-    "--publish", "127.0.0.1::8787", "--health-interval", "1s", "--health-start-period", "0s",
+    "--health-interval", "1s", "--health-start-period", "0s",
     "-e", "NODE_ENV", "-e", "MKTR_TELEPHONY_MODE", "-e", "MKTR_CLASSIFIER_MODE", "-e", "DATABASE_URL",
     "-e", "MKTR_ADMIN_EMAIL", "-e", "MKTR_ADMIN_PASSWORD", "-e", "MKTR_WEB_ORIGIN", apiImage]);
   containers.push(names.worker);
-  await docker(["run", "--detach", "--name", names.worker, "--network", names.network,
-    "--publish", "127.0.0.1::8090", "--health-interval", "1s", "-e", "NODE_ENV", "-e", "MKTR_TELEPHONY_MODE", workerImage]);
+  await docker(["run", "--detach", "--name", names.worker, "--network", names.network, "--network-alias", "media-worker",
+    "--health-interval", "1s", "-e", "NODE_ENV", "-e", "MKTR_TELEPHONY_MODE", workerImage]);
   for (const container of [names.api, names.worker]) {
     await waitFor(container, async () => await docker(["inspect", "--format", "{{.State.Health.Status}}", container]) === "healthy");
     assert.notEqual(await docker(["exec", container, "id", "-u"]), "0");
@@ -95,23 +111,7 @@ try {
     const nodeExecutable = await docker(["exec", container, "node", "-p", "process.execPath"]);
     assert.equal(pidOneExecutable, nodeExecutable);
   }
-  const api = await publishedUrl(names.api, 8787);
-  const worker = await publishedUrl(names.worker, 8090);
-  const health = await fetch(`${api}/api/health`, { signal: AbortSignal.timeout(3000) });
-  assert.equal(health.status, 200);
-  assert.equal((await health.json()).mode, "simulated");
-  const workerHealth = await fetch(`${worker}/health`, { signal: AbortSignal.timeout(3000) });
-  assert.equal(workerHealth.status, 200);
-  assert.equal((await workerHealth.json()).enabled, false);
-  assert.equal((await fetch(`${api}/api/calls`, { method: "POST", signal: AbortSignal.timeout(3000) })).status, 401);
-  const login = await fetch(`${api}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", Origin: environment.MKTR_WEB_ORIGIN },
-    body: JSON.stringify({ email: environment.MKTR_ADMIN_EMAIL, password: environment.MKTR_ADMIN_PASSWORD }), signal: AbortSignal.timeout(5000) });
-  assert.equal(login.status, 200);
-  const cookie = login.headers.get("set-cookie");
-  assert.match(cookie, /HttpOnly/);
-  assert.match(cookie, /Secure/);
-  const bootstrap = await fetch(`${api}/api/bootstrap`, { headers: { Cookie: cookie.split(";")[0] }, signal: AbortSignal.timeout(3000) });
-  assert.equal(bootstrap.status, 200);
+  console.log(await docker(["exec", names.api, "node", "--input-type=module", "--eval", `(${probeRuntime.toString()})()`]));
   console.log("PASS: built production images run as non-root Node PID 1; migrations, healthchecks, seeded login and authenticated bootstrap work in an isolated simulator network.");
   await stopCleanly(names.api);
   await stopCleanly(names.worker);
