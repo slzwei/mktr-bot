@@ -30,8 +30,8 @@ Done when: One persistent, auto-reconnecting ESL connection subscribes to `BACKG
 Verify: `npm test` includes a fake ESL server covering the auth handshake, event frames with `Content-Length` bodies, `-ERR` replies, and reconnect after socket close. A test emits `CHANNEL_HANGUP_COMPLETE` for an active call and asserts `activeCallCount()` drops by one. A test runs a flow to its end node with a fake adapter and asserts exactly one hangup command.
 
 ### A3. Timeouts and loop caps
-Status: todo
-Evidence: 2026-09-11 public-interface probes: a silent second listen remains `listening` with one active call after 6.3 s; `validateFlow` accepts start -> listen -> retry -> listen without a counter (`valid: true`). `server/telephony.ts:50` lacks originate/answer hangup deadlines, and `src/lib/domain.ts:30` lacks timeout/maxAttempts fields. Required timeout/cap unit tests are absent from the passing 4-test suite.
+Status: done
+Evidence: `npm test` 34/34 passes including the six-second default listen deadline, silence fallback, repeated-listen retry cap, uncapped-loop publish rejection, unanswered/answered deadlines and fake-ESL originate variables; build passes. Docker-dependent compose inspection blocked: Docker not installed on host. Verified against fake ESL and fake STT; provider timers still require the operator runbook check.
 Why: A silent callee leaves the call in `listening` forever, the retry node has no counter, and nothing caps call length.
 Done when: Listen nodes have a configurable no-speech timeout (default 6 s) that routes to the fallback edge. Every originate sets `originate_timeout` (default 30 s) and `execute_on_answer=sched_hangup +MKTR_MAX_CALL_SECONDS` (default 180). Retry nodes carry `maxAttempts` (default 1) enforced by the orchestrator. Flow validation rejects a graph where a retry can re-enter a listen node without a counter.
 Verify: Unit tests for each timeout and cap, plus a `validateFlow` test for an uncapped retry loop.

@@ -54,13 +54,15 @@ export class CallOrchestrator {
   private readonly playbacks = new Map<string, { id: string; target: string }>();
   private readonly terminations = new Map<string, Promise<CallSession>>();
   private readonly operations = new Map<string, Promise<unknown>>();
+  private readonly listenTimers = new Map<string, NodeJS.Timeout>();
   private readonly unsubscribeAdapter?: () => void;
 
   constructor(
     private readonly store: InMemoryStore,
     private readonly adapter: TelephonyAdapter,
     private readonly classifier: TranscriptClassifier = createTranscriptClassifier(),
-    private readonly playbackDelay: PlaybackDelay = defaultPlaybackDelay
+    private readonly playbackDelay: PlaybackDelay = defaultPlaybackDelay,
+    private readonly deadlines = { originateTimeoutMs: config.originateTimeoutSeconds * 1000, maxCallMs: config.maxCallSeconds * 1000 }
   ) {
     this.unsubscribeAdapter = adapter.onEvent?.((event) => {
       void this.handleTelephonyEvent(event).catch((error: unknown) => {
@@ -107,6 +109,9 @@ export class CallOrchestrator {
       this.publish(session);
       this.pendingStarts -= 1;
       reserved = false;
+      this.after(session.id, this.deadlines.originateTimeoutMs, async (current) => {
+        if (["queued", "dialing", "ringing"].includes(current.status)) await this.finish(current, "failed", "NO_ANSWER");
+      });
       // Persist the UUID before sending originate: answer/job events may precede its reply.
       const provider = await this.adapter.originate(input, session.providerCallId);
       const current = this.store.getCall(session.id) ?? session;
@@ -154,6 +159,7 @@ export class CallOrchestrator {
     try {
       this.traversalHops.set(session.id, 0);
       this.transition(session, "answered", "answered", "Call answered");
+      this.after(session.id, this.deadlines.maxCallMs, async (current) => { await this.finish(current, "ended", "ALLOTTED_TIMEOUT"); });
       await this.advance(session, flow, flow.startNodeId);
       return this.store.getCall(id) ?? session;
     } catch (error) {
@@ -190,6 +196,7 @@ export class CallOrchestrator {
     try {
       this.record(session, "transcript_final", "Transcript final", transcript, listeningNode.id, receipt?.sttLatencyMs);
       session.lastListenWindowId = session.listenWindowId;
+      this.clearListenTimer(session.id);
       session.lastUtteranceId = receipt?.utteranceId;
       session.listenWindowId = undefined;
       session.status = "classifying";
@@ -278,6 +285,19 @@ export class CallOrchestrator {
     }
 
     if (node.type === "playClip" || node.type === "retry") {
+      if (node.type === "retry") {
+        const maxAttempts = node.data.maxAttempts ?? 1;
+        if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) throw new Error("Retry maxAttempts must be from 1 to 10.");
+        const attempts = session.retryAttempts ??= {};
+        if ((attempts[node.id] ?? 0) >= maxAttempts) {
+          const fallback = this.outgoing(flow, node.id).find((edge) => edge.condition?.fallback);
+          if (fallback) await this.advance(session, flow, fallback.target, result, visited);
+          else await this.finish(session, "ended", "Retry limit reached");
+          return;
+        }
+        attempts[node.id] = (attempts[node.id] ?? 0) + 1;
+        this.persist(session);
+      }
       const route = this.pickLinearRoute(flow, node.id);
       if (!route) throw new Error("The clip node has no route.");
       const playbackId = randomUUID();
@@ -325,6 +345,17 @@ export class CallOrchestrator {
       node.id
     );
     await this.adapter.startListening?.(session.providerCallId, session.id, session.listenWindowId);
+    const windowId = session.listenWindowId;
+    const timeout = node.data.noSpeechTimeoutMs ?? 6000;
+    if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Listen timeout must be from 1 to 60000 milliseconds.");
+    this.clearListenTimer(session.id);
+    const timer = setTimeout(() => {
+      void this.enqueue(session.id, () => this.noSpeech(session.id, windowId)).catch((error: unknown) => {
+        console.error("No-speech routing failed", { callId: session.id, error });
+      });
+    }, timeout);
+    timer.unref();
+    this.listenTimers.set(session.id, timer);
     const transcript = this.simulationReplies.get(session.id)?.shift();
     if (!transcript) return;
     if (this.simulationReplies.get(session.id)?.length === 0) {
@@ -344,6 +375,33 @@ export class CallOrchestrator {
     this.transition(session, "playing", "clip_playing", "Playing " + node.data.label, "Pre-recorded clip", node.id);
     await this.adapter.playClip(session.providerCallId, clip, playbackId);
     return clip;
+  }
+
+  private async noSpeech(id: string, windowId: string): Promise<void> {
+    const session = this.store.getCall(id);
+    if (!session || session.status !== "listening" || session.listenWindowId !== windowId || this.terminations.has(id)) return;
+    this.clearListenTimer(id);
+    session.listenWindowId = undefined;
+    session.status = "classifying";
+    this.persist(session);
+    try {
+      await this.adapter.stopListening?.(session.providerCallId);
+      const flow = this.flowForSession(session);
+      const route = flow && this.outgoing(flow, session.currentNodeId!).find((edge) => edge.condition?.fallback);
+      if (!flow || !route) throw new Error("No-speech timeout has no fallback route.");
+      const result: ClassifierResult = { intent: "unknown", sentiment: "uncertain", confidence: 0, transcript: "", provider: "rules" };
+      session.classifierResult = result;
+      this.record(session, "branch_selected", "No speech: fallback selected", route.label ?? "Fallback", session.currentNodeId);
+      this.persist(session);
+      await this.advance(session, flow, route.target, result);
+    } catch (error) {
+      await this.finish(session, "failed", error instanceof Error ? error.message : "No-speech routing failed.");
+    }
+  }
+
+  private clearListenTimer(id: string) {
+    clearTimeout(this.listenTimers.get(id));
+    this.listenTimers.delete(id);
   }
 
   private pickLinearRoute(flow: FlowDefinition, sourceId: string): FlowEdge | undefined {
@@ -558,6 +616,7 @@ export class CallOrchestrator {
   }
 
   private cancelSchedule(callId: string) {
+    this.clearListenTimer(callId);
     (this.schedules.get(callId) ?? []).forEach((timer) => clearTimeout(timer));
     this.schedules.delete(callId);
   }

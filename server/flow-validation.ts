@@ -22,6 +22,22 @@ export function validateFlow(flow: FlowDefinition, clips: Clip[]): FlowValidatio
   }
 
   for (const node of flow.nodes) {
+    if (node.type === "listen" && node.data.noSpeechTimeoutMs !== undefined && (!Number.isSafeInteger(node.data.noSpeechTimeoutMs) || node.data.noSpeechTimeoutMs < 1 || node.data.noSpeechTimeoutMs > 60000)) errors.push(`${node.data.label} needs a listen timeout from 1 to 60000 milliseconds.`);
+    if (node.type === "retry") {
+      if (node.data.maxAttempts !== undefined && (!Number.isSafeInteger(node.data.maxAttempts) || node.data.maxAttempts < 1 || node.data.maxAttempts > 10)) errors.push(`${node.data.label} needs maxAttempts from 1 to 10.`);
+      const queue = flow.edges.filter((edge) => edge.source === node.id).map((edge) => edge.target);
+      const seen = new Set<string>();
+      while (queue.length) {
+        const id = queue.shift()!;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (flow.nodes.find((entry) => entry.id === id)?.type === "listen" && node.data.maxAttempts === undefined) {
+          errors.push(`${node.data.label} can re-enter a listen node and requires an explicit maxAttempts counter.`);
+          break;
+        }
+        queue.push(...flow.edges.filter((edge) => edge.source === id).map((edge) => edge.target));
+      }
+    }
     if (["playClip", "retry"].includes(node.type) && (!node.data.clipId || !clipIds.has(node.data.clipId))) {
       errors.push(`${node.data.label} needs a ready audio clip.`);
     }

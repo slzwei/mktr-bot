@@ -116,7 +116,7 @@ const makeNode = (type: FlowNodeKind, position: { x: number; y: number }): FlowN
     listen: { label: "Listen for reply", description: "Endpoint after 750 ms" },
     classify: { label: "Classify response", threshold: 0.7, description: "Intent + sentiment" },
     condition: { label: "Check condition", description: "Route by outcome" },
-    retry: { label: "Clarify once", description: "Low confidence fallback" },
+    retry: { label: "Clarify once", maxAttempts: 1, description: "Low confidence fallback" },
     end: { label: "End call" }
   };
   return { id, type, position, data: defaults[type] };

@@ -33,6 +33,8 @@ export type FlowNode = {
     prompt?: string;
     threshold?: number;
     description?: string;
+    noSpeechTimeoutMs?: number;
+    maxAttempts?: number;
   };
 };
 
@@ -134,6 +136,7 @@ export type CallSession = {
   listenWindowId?: string;
   lastListenWindowId?: string;
   lastUtteranceId?: string;
+  retryAttempts?: Record<string, number>;
   events: CallEvent[];
 };
 

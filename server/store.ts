@@ -108,7 +108,7 @@ const flowNodes: FlowNode[] = [
     id: "retry",
     type: "retry",
     position: { x: 970, y: 530 },
-    data: { label: "Clarify once", clipId: "clip-clarify", description: "Low confidence fallback" }
+    data: { label: "Clarify once", clipId: "clip-clarify", maxAttempts: 1, description: "Low confidence fallback" }
   },
   {
     id: "end-interest",

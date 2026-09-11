@@ -80,3 +80,5 @@ Gateway registration, TLS 5061, and actual audio transport remain operator check
 | Concurrent calls | `5` |
 
 The separate `media-worker` receives authenticated callee-only PCM WebSockets from `mod_audio_stream` while a call is listening. `MKTR_STT_PROVIDER=deepgram` selects Nova-3 with 750 ms endpointing, linear16 8 kHz mono. `MKTR_STT_LANGUAGE` defaults to `en-SG` and maps to Deepgram wire code `en` (the provider does not list `en-SG`). Configure `DEEPGRAM_API_KEY` and a URL-safe `MKTR_MEDIA_GATEWAY_TOKEN` of at least 16 characters privately on the operator host. Simulator mode leaves provider streaming disabled. Run `npm run test:media` for loopback audio and fake STT verification; real speech accuracy belongs to the first-live-call runbook.
+
+Listen nodes accept `noSpeechTimeoutMs` (default 6000) and retry nodes accept `maxAttempts` (default 1). Set `MKTR_ORIGINATE_TIMEOUT_SECONDS` and `MKTR_MAX_CALL_SECONDS` for answer and connected-call limits; the defaults are 30 and 180. First-call limits belong in the operator runbook.

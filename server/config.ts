@@ -7,6 +7,13 @@ const int = (value: string | undefined, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+export function boundedInteger(value: string | undefined, fallback: number, min: number, max: number): number {
+  if (!value) return fallback;
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < min || number > max) throw new Error(`Configuration requires an integer from ${min} to ${max}.`);
+  return number;
+}
+
 export const config = {
   port: int(process.env.PORT, 8787),
   webOrigin: process.env.MKTR_WEB_ORIGIN || "http://localhost:5173",
@@ -14,7 +21,9 @@ export const config = {
   telephonyMode: (process.env.MKTR_TELEPHONY_MODE === "freeswitch"
     ? "freeswitch"
     : "simulated") as TelephonyMode,
-  maxConcurrentCalls: int(process.env.MKTR_MAX_CONCURRENT_CALLS, 5),
+  maxConcurrentCalls: boundedInteger(process.env.MKTR_MAX_CONCURRENT_CALLS, 5, 1, 5),
+  originateTimeoutSeconds: boundedInteger(process.env.MKTR_ORIGINATE_TIMEOUT_SECONDS, 30, 1, 120),
+  maxCallSeconds: boundedInteger(process.env.MKTR_MAX_CALL_SECONDS, 180, 1, 1800),
   clipStorageDir: process.env.MKTR_CLIP_STORAGE_DIR ?? path.join(process.cwd(), "storage", "clips"),
   classifier: {
     mode: process.env.MKTR_CLASSIFIER_MODE === "openai" && Boolean(process.env.OPENAI_API_KEY)

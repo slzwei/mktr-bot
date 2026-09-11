@@ -63,7 +63,9 @@ export class FreeSwitchEslAdapter implements TelephonyAdapter {
       `origination_uuid=${providerCallId}`,
       `origination_caller_id_number=${input.callerId}`,
       "origination_caller_id_name=MKTR", "absolute_codec_string=PCMA",
-      "rtp_secure_media=true", "hangup_after_bridge=true"
+      "rtp_secure_media=true", "hangup_after_bridge=true",
+      `originate_timeout=${config.originateTimeoutSeconds}`,
+      `execute_on_answer='sched_hangup +${config.maxCallSeconds} ALLOTTED_TIMEOUT'`
     ].join(",");
     const frame = await this.client.command(`bgapi originate {${variables}}sofia/gateway/singtel/${input.destination} &park()`);
     const jobId = frame.headers["job-uuid"] ?? frame.headers["reply-text"]?.match(/Job-UUID:\s*(\S+)/)?.[1];
