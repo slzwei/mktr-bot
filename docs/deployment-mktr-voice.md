@@ -57,7 +57,11 @@ All three passed every fake-based test and only appeared against real FreeSWITCH
 
 11 Sep 2026, call `4ff551b6-049b-4074-9bc9-79c5f6bcbbe1`, destination the operator's own mobile, caller ID +6562773211, flow Prospect qualification v4. Ringing 08:01:36 UTC, answered 08:01:42, greeting played, transcript "Yes." 1.8 s after speech ended, classified interested at 88 percent by rules, Interested clip played, Flow completed 08:02:00. No channel left on FreeSWITCH, capacity back to 0 of 1. A second call (`37e5c122`) repeated the same path.
 
-Deployed since 12 Sep 2026: Latency stages 1 and 2. The call now holds one audio stream and one Deepgram connection from answer to hangup, so no listen window pays a connection handshake, and the orchestrator opens and closes windows on the worker over HTTP. Neither stage has been checked against a live call yet.
+Deployed since 12 Sep 2026: Latency stages 1 and 2, verified by live calls. The call holds one audio stream and one Deepgram connection from answer to hangup, and the orchestrator opens and closes listen windows on the worker over HTTP. Measured from those calls, connection setup contributes nothing to the turn, so stage 2 bought no latency; endpointing is the only lever, one millisecond for one.
+
+Session recording is on (`MKTR_RECORDING_ENABLED=true`). Every answered outbound call writes `<callId>.wav` into the shared `recording-data` volume, and the call review plays it inline with byte ranges as well as offering the download. Inbound callbacks record under the separate `MKTR_INBOUND_RECORD_MESSAGE` flag, which is still off. Recordings purge after `MKTR_RECORDING_RETENTION_DAYS`, default 30.
+
+A listen node's no-speech timeout no longer fires on a caller who is mid-sentence: the worker reports recognizable words and the API replaces the timeout with a single bounded wait for the transcript. Live call `5ed7136f` lost a real answer to this before the fix.
 
 Known tuning point: endpointing, the silence that ends the caller's reply, is set per listen node in the flow editor since Latency stage 1 (default 300 ms, range 100–1000 ms); the first call ran at the old fixed 750 ms. A node whose value differs from the first listen node's makes the worker reconnect for that turn. Lengthen it on nodes where callers get cut off and keep it short on yes/no nodes. Deepgram traffic goes to the Sydney origin unless `MKTR_DEEPGRAM_BASE_URL` in the env file names another bare https origin; recreate `media-worker` after changing it.
 
