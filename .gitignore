@@ -1,0 +1,12 @@
+node_modules
+dist
+.server-dist
+.env
+.env.local
+coverage
+playwright-report
+test-results
+storage
+telephony/freeswitch/certs/*.pem
+telephony/freeswitch/singtel-external.xml
+.DS_Store

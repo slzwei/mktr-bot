@@ -1,0 +1,11 @@
+node_modules
+dist
+.server-dist
+storage
+.env
+.env.*
+!.env.example
+.git
+.DS_Store
+telephony/freeswitch/certs/*.pem
+telephony/freeswitch/singtel-external.xml

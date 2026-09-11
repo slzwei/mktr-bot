@@ -1,0 +1,80 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${MKTR_API_PORT:-8787}:8787"
+    environment:
+      PORT: 8787
+      MKTR_TELEPHONY_MODE: ${MKTR_TELEPHONY_MODE:-simulated}
+      MKTR_MAX_CONCURRENT_CALLS: 5
+      MKTR_CLIP_STORAGE_DIR: /app/storage/clips
+      MKTR_SINGTEL_SIP_HOST: sipsg01.b3networks.com
+      MKTR_SINGTEL_SIP_IP: 52.77.0.62
+      MKTR_SINGTEL_PCMA_PORT: 5061
+      MKTR_SINGTEL_OPUS_PORT: 5081
+      MKTR_SINGTEL_SIP_USERNAME: ${MKTR_SINGTEL_SIP_USERNAME:-sip69992409}
+      MKTR_SINGTEL_SIP_PASSWORD: ${MKTR_SINGTEL_SIP_PASSWORD:-}
+      MKTR_SINGTEL_CA_CERT_PATH: /run/secrets/singtel-ca
+      MKTR_FREESWITCH_ESL_HOST: ${MKTR_FREESWITCH_ESL_HOST:-freeswitch}
+      MKTR_FREESWITCH_ESL_PORT: 8021
+      MKTR_FREESWITCH_ESL_PASSWORD: ${MKTR_FREESWITCH_ESL_PASSWORD:-}
+      MKTR_MEDIA_GATEWAY_TOKEN: ${MKTR_MEDIA_GATEWAY_TOKEN:-}
+      DATABASE_URL: postgresql://mktr:mktr@postgres:5432/mktr
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - clip-data:/app/storage/clips
+      - ${MKTR_SINGTEL_CA_CERT_PATH:-./telephony/freeswitch/certs/CA_Certificate-2.pem}:/run/secrets/singtel-ca:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mktr
+      POSTGRES_USER: mktr
+      POSTGRES_PASSWORD: mktr
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mktr -d mktr"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  freeswitch:
+    image: signalwire/freeswitch:1.10.12
+    profiles: ["live"]
+    restart: unless-stopped
+    ports:
+      - "5061:5061/tcp"
+      - "10000-10020:10000-10020/udp"
+      - "8021:8021/tcp"
+    environment:
+      MKTR_SINGTEL_SIP_USERNAME: ${MKTR_SINGTEL_SIP_USERNAME:-sip69992409}
+      MKTR_SINGTEL_SIP_PASSWORD: ${MKTR_SINGTEL_SIP_PASSWORD:-}
+      MKTR_SINGTEL_SIP_HOST: sipsg01.b3networks.com
+    volumes:
+      - ./telephony/freeswitch/singtel-external.xml:/etc/freeswitch/sip_profiles/external/singtel.xml:ro
+      - ./telephony/freeswitch/certs:/etc/freeswitch/tls:ro
+      - clip-data:/var/lib/freeswitch/recordings/mktr
+
+volumes:
+  postgres-data:
+  redis-data:
+  clip-data:

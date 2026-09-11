@@ -1,0 +1,226 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AudioLines,
+  Bot,
+  ChevronDown,
+  CircleHelp,
+  Cloud,
+  FileClock,
+  GitBranch,
+  LoaderCircle,
+  Menu,
+  PhoneCall,
+  Play,
+  Plus,
+  RadioTower,
+  Save,
+  Settings,
+  ShieldCheck,
+  Upload
+} from "lucide-react";
+import { CallConsole } from "./components/CallConsole";
+import { ClipLibrary } from "./components/ClipLibrary";
+import { FlowCanvas } from "./components/FlowCanvas";
+import { TrunkPanel } from "./components/TrunkPanel";
+import { api, ApiError } from "./lib/api";
+import type { BootstrapData, CallSession, Clip, FlowDefinition } from "./lib/domain";
+
+type View = "flows" | "clips" | "calls" | "trunk";
+
+const navigation: { id: View; label: string; icon: typeof GitBranch }[] = [
+  { id: "flows", label: "Flows", icon: GitBranch },
+  { id: "clips", label: "Audio clips", icon: AudioLines },
+  { id: "calls", label: "Call history", icon: FileClock },
+  { id: "trunk", label: "SIP trunk", icon: RadioTower }
+];
+
+function App() {
+  const [data, setData] = useState<BootstrapData>();
+  const [view, setView] = useState<View>("flows");
+  const [activeFlowId, setActiveFlowId] = useState("");
+  const [workingFlow, setWorkingFlow] = useState<FlowDefinition>();
+  const [selectedNodeId, setSelectedNodeId] = useState<string>();
+  const [callOpen, setCallOpen] = useState(false);
+  const [activeCall, setActiveCall] = useState<CallSession>();
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string }>();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    api.bootstrap()
+      .then((bootstrap) => {
+        setData(bootstrap);
+        const first = bootstrap.flows[0];
+        if (first) {
+          setActiveFlowId(first.id);
+          setWorkingFlow(first);
+        }
+      })
+      .catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not load the application." }));
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(undefined), 3500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  const selectFlow = (id: string) => {
+    const flow = data?.flows.find((candidate) => candidate.id === id);
+    if (!flow) return;
+    setActiveFlowId(id);
+    setWorkingFlow(structuredClone(flow));
+    setSelectedNodeId(undefined);
+  };
+
+  const updateFlowInData = useCallback((flow: FlowDefinition) => {
+    setData((current) => current ? { ...current, flows: current.flows.map((item) => item.id === flow.id ? flow : item) } : current);
+    setWorkingFlow(flow);
+  }, []);
+
+  const save = async () => {
+    if (!workingFlow) return;
+    setSaving(true);
+    try {
+      const saved = await api.saveFlow(workingFlow);
+      updateFlowInData(saved);
+      setNotice({ kind: "success", text: "Draft saved." });
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof ApiError ? error.message : "Could not save the flow." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const publish = async () => {
+    if (!workingFlow) return;
+    setSaving(true);
+    try {
+      const saved = await api.saveFlow(workingFlow);
+      const result = await api.publishFlow(saved.id);
+      updateFlowInData(result.flow);
+      setNotice({ kind: "success", text: `Published version ${result.flow.version}.` });
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof ApiError ? error.message : "Flow validation failed." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const createFlow = async () => {
+    try {
+      const flow = await api.createFlow(`Untitled flow ${(data?.flows.length ?? 0) + 1}`);
+      setData((current) => current ? { ...current, flows: [...current.flows, flow] } : current);
+      setActiveFlowId(flow.id);
+      setWorkingFlow(flow);
+      setView("flows");
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not create a flow." });
+    }
+  };
+
+  const onCallUpdate = useCallback((call: CallSession) => {
+    setActiveCall(call);
+    setData((current) => {
+      if (!current) return current;
+      const exists = current.calls.some((candidate) => candidate.id === call.id);
+      const calls = exists ? current.calls.map((candidate) => candidate.id === call.id ? call : candidate) : [call, ...current.calls];
+      const activeCalls = calls.filter((candidate) => !["ended", "failed"].includes(candidate.status)).length;
+      return { ...current, calls, trunk: { ...current.trunk, activeCalls } };
+    });
+  }, []);
+
+  const onClipCreated = (clip: Clip) => {
+    setData((current) => current ? { ...current, clips: [clip, ...current.clips] } : current);
+    setNotice({ kind: "success", text: "Audio clip added." });
+  };
+
+  const calls = useMemo(() => data?.calls ?? [], [data?.calls]);
+
+  if (!data || !workingFlow) {
+    return <main className="loading-screen"><span className="brand-mark"><Bot size={22} /></span><LoaderCircle className="spin" size={22} /><strong>Loading voice control</strong></main>;
+  }
+
+  return (
+    <div className={`app-shell ${callOpen ? "has-call-console" : ""}`}>
+      <header className="topbar">
+        <div className="topbar__brand">
+          <button className="mobile-menu" onClick={() => setSidebarOpen((open) => !open)} aria-label="Toggle navigation"><Menu size={19} /></button>
+          <span className="brand-mark"><Bot size={20} /></span>
+          <span>MKTR</span>
+          <small>Voice Control</small>
+        </div>
+        <div className="topbar__status">
+          <span className={`status-pill status-pill--${data.trunk.mode}`}><i /> {data.trunk.mode === "simulated" ? "Simulator" : "Singtel live"}</span>
+          <button className="icon-button" title="Help" aria-label="Help"><CircleHelp size={18} /></button>
+          <button className="account-button"><span>SL</span><ChevronDown size={14} /></button>
+        </div>
+      </header>
+
+      <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
+        <nav>
+          <span className="nav-label">Workspace</span>
+          {navigation.map((item) => {
+            const Icon = item.icon;
+            return <button key={item.id} className={view === item.id ? "is-active" : ""} onClick={() => { setView(item.id); setSidebarOpen(false); }}><Icon size={17} /> {item.label}</button>;
+          })}
+          <span className="nav-label nav-label--lower">System</span>
+          <button><Activity size={17} /> Event logs</button>
+          <button><Settings size={17} /> Settings</button>
+        </nav>
+        <div className="sidebar__trunk">
+          <div><RadioTower size={16} /><span><strong>Singtel SIP</strong><small>{data.trunk.trunkUsername}</small></span></div>
+          <div className="capacity-meter"><i style={{ width: `${(data.trunk.activeCalls / data.trunk.maxConcurrentCalls) * 100}%` }} /></div>
+          <small>{data.trunk.activeCalls} of {data.trunk.maxConcurrentCalls} calls active</small>
+        </div>
+      </aside>
+
+      <main className="main-view">
+        {view === "flows" && (
+          <>
+            <div className="workspace-toolbar">
+              <div className="flow-switcher">
+                <span className="eyebrow">Call flow</span>
+                <div>
+                  <select value={activeFlowId} onChange={(event) => selectFlow(event.target.value)}>
+                    {data.flows.map((flow) => <option key={flow.id} value={flow.id}>{flow.name}</option>)}
+                  </select>
+                  <span className={`version-tag version-tag--${workingFlow.status}`}>{workingFlow.status === "published" ? `Published v${workingFlow.version}` : "Draft"}</span>
+                </div>
+              </div>
+              <div className="toolbar-actions">
+                <button className="secondary-button" onClick={createFlow}><Plus size={15} /> New flow</button>
+                <button className="secondary-button" onClick={save} disabled={saving}>{saving ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />} Save</button>
+                <button className="secondary-button" onClick={publish} disabled={saving}><Upload size={15} /> Publish</button>
+                <button className="primary-button" onClick={() => setCallOpen(true)}><Play size={15} fill="currentColor" /> Test call</button>
+              </div>
+            </div>
+            <FlowCanvas key={workingFlow.id} flow={workingFlow} clips={data.clips} selectedNodeId={selectedNodeId} onSelectedNodeChange={setSelectedNodeId} onChange={(flow) => setWorkingFlow({ ...flow, status: "draft" })} />
+          </>
+        )}
+
+        {view === "clips" && <ClipLibrary clips={data.clips} onCreated={onClipCreated} />}
+        {view === "trunk" && <TrunkPanel trunk={data.trunk} />}
+        {view === "calls" && (
+          <div className="history-view">
+            <section className="library-header"><div><span className="eyebrow"><FileClock size={14} /> Call history</span><h1>Test call sessions</h1><p>Review call outcomes, selected branches, and measured decision latency.</p></div><button className="primary-button" onClick={() => setCallOpen(true)}><PhoneCall size={16} /> New test call</button></section>
+            <section className="history-table">
+              <header><span>Destination</span><span>Caller ID</span><span>Flow</span><span>Outcome</span><span>Started</span></header>
+              {calls.length === 0 ? <div className="empty-history"><Cloud size={24} /><strong>No calls yet</strong><span>Run a simulated test call from any published flow.</span></div> : calls.map((call) => (
+                <button className="history-row" key={call.id} onClick={() => { setActiveCall(call); setCallOpen(true); }}>
+                  <span><PhoneCall size={14} /> {call.destination}</span><span>{call.callerId}</span><span>v{call.flowVersion}</span><span className={`call-outcome call-outcome--${call.status}`}>{call.endReason ?? call.status}</span><time>{new Date(call.createdAt).toLocaleString()}</time>
+                </button>
+              ))}
+            </section>
+          </div>
+        )}
+      </main>
+
+      <CallConsole open={callOpen} flows={data.flows} trunk={data.trunk} activeCall={activeCall} onClose={() => setCallOpen(false)} onStarted={onCallUpdate} onUpdated={onCallUpdate} />
+      {notice && <div className={`toast toast--${notice.kind}`}><ShieldCheck size={16} /> {notice.text}</div>}
+    </div>
+  );
+}
+
+export default App;

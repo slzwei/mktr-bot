@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FlowStatus {
+  draft
+  published
+}
+
+enum ClipStatus {
+  ready
+  processing
+  archived
+}
+
+enum CallStatus {
+  queued
+  dialing
+  ringing
+  answered
+  playing
+  listening
+  classifying
+  ended
+  failed
+}
+
+model Flow {
+  id          String     @id
+  name        String
+  version     Int        @default(0)
+  status      FlowStatus @default(draft)
+  startNodeId String
+  nodes       Json
+  edges       Json
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  publishedAt DateTime?
+  calls       Call[]
+
+  @@index([status, updatedAt])
+}
+
+model Clip {
+  id               String     @id
+  name             String
+  durationSeconds  Int
+  format           String
+  status           ClipStatus @default(processing)
+  assetUrl         String?
+  originalFilename String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@index([status, updatedAt])
+}
+
+model Call {
+  id             String     @id
+  providerCallId String
+  destination    String
+  callerId       String
+  flowId         String
+  flowVersion    Int
+  status         CallStatus
+  endReason      String?
+  classifier     Json?
+  createdAt      DateTime   @default(now())
+  endedAt        DateTime?
+  flow           Flow       @relation(fields: [flowId], references: [id])
+  events         CallEvent[]
+
+  @@index([createdAt])
+  @@index([flowId, flowVersion])
+}
+
+model CallEvent {
+  id        String   @id
+  callId    String
+  type      String
+  title     String
+  detail    String?
+  nodeId    String?
+  latencyMs Int?
+  timestamp DateTime @default(now())
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([callId, timestamp])
+}
