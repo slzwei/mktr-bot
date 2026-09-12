@@ -1,4 +1,81 @@
 .operator-view { min-width: 0; min-height: 100%; padding: var(--space-8); color: var(--ink); background: var(--soft); }
+.live-calls-view { container-type: inline-size; }
+.live-calls-actions, .live-empty-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.live-capacity { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); padding: var(--space-5) var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel); }
+.live-capacity-count { display: flex; gap: var(--space-4); align-items: center; color: var(--teal); }
+.live-capacity-count > div { display: flex; flex-direction: column; gap: var(--space-1); }
+.live-capacity-count strong { color: var(--ink); font-size: 30px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+.live-capacity-count strong span { color: var(--text-secondary); font-weight: 400; font-size: 22px; }
+.live-capacity-count > div > span { color: var(--text-secondary); font-size: 11px; }
+.live-capacity-message { flex: 1 1 240px; }
+.live-capacity-message strong { font-size: 14px; font-weight: 600; }
+.live-capacity-message p { color: var(--text-secondary); margin: var(--space-2) 0 0; font-size: 12px; line-height: 1.5; }
+.live-capacity-slots { display: flex; gap: var(--space-2); }
+.live-capacity-slots span { width: 20px; height: 32px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--soft); }
+.live-capacity-slots .is-occupied { border-color: var(--teal); background: var(--teal); }
+.live-capacity--full { border-color: #d8b97f; background: var(--warning-soft); }
+.live-capacity--full .live-capacity-message strong, .live-capacity--full .live-capacity-count > svg { color: var(--warning-ink); }
+.live-capacity--full .is-occupied { background: var(--warning-ink); border-color: var(--warning-ink); }
+.live-calls-caption { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 52px; color: var(--text-secondary); font-size: 11px; }
+.live-call-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; gap: var(--space-5); }
+.live-call-card { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--line); border-top: 3px solid var(--teal); border-radius: var(--radius-md); background: var(--panel); box-shadow: var(--shadow-soft); }
+.live-call-card:only-child { width: 100%; max-width: 760px; }
+.live-call-card--finished { border-top-color: var(--text-secondary); }
+.live-call-card--failed { border-top-color: var(--danger-ink); }
+.live-call-identity { padding: var(--space-5) var(--space-5) var(--space-4); }
+.live-call-identity .eyebrow { font-size: 10px; }
+.live-call-identity h2 { margin: var(--space-2) 0; font-size: 19px; line-height: 1.3; font-weight: 600; letter-spacing: -.3px; }
+.live-call-number { display: block; color: var(--text-secondary); font-size: 11px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.live-call-state { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); margin: 0 var(--space-5); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--soft); }
+.live-call-status { display: flex; align-items: center; gap: var(--space-3); }
+.live-call-status strong { font-size: 14px; font-weight: 600; }
+.status-orb--queued { background: var(--text-secondary); box-shadow: 0 0 0 4px var(--unknown-soft); }
+.status-orb--dialing { background: var(--info-ink); box-shadow: 0 0 0 4px #dce8f4; }
+.status-orb--ringing { background: var(--warning-ink); box-shadow: 0 0 0 4px #f1e4c9; }
+.status-orb--failed { background: var(--danger-ink); box-shadow: none; }
+.live-call-duration { font-size: 18px; line-height: 1.25; text-align: right; font-variant-numeric: tabular-nums; }
+.live-call-duration small { display: block; margin-top: var(--space-1); color: var(--text-secondary); font-size: 10px; }
+.live-call-facts { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-4) var(--space-5); }
+.live-call-facts > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--space-2); align-items: baseline; }
+.live-call-facts dt { color: var(--text-secondary); font-size: 11px; }
+.live-call-facts dd { margin: 0; font-size: 12px; font-weight: 500; line-height: 1.5; }
+.live-flow-version { color: var(--text-secondary); white-space: nowrap; }
+.live-call-connection { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); padding: 0 var(--space-5) var(--space-4); color: var(--text-secondary); font-size: 10px; }
+.live-stream-warning { color: var(--warning-ink); }
+.live-recording { display: flex; align-items: center; gap: var(--space-1); color: var(--danger-ink); }
+.live-recording i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.live-roster-warning { padding: var(--space-3) var(--space-4); background: var(--warning-soft); color: var(--warning-ink); font-size: 12px; line-height: 1.6; border-radius: var(--radius-sm); }
+.live-call-outcome { padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); background: var(--soft); border-block: 1px solid var(--line); }
+.live-call-outcome p { margin: var(--space-2) 0 0; font-size: 12px; line-height: 1.6; }
+.live-call-card--failed .live-call-outcome { background: var(--danger-soft); color: var(--danger-ink); }
+.live-call-card .call-event-timeline { padding: 0 var(--space-5); }
+.call-event-timeline .event-log__title { align-items: center; gap: var(--space-2); font-size: 11px; }
+.call-event-timeline .event-log__title small { margin-top: 0; font-weight: 400; color: var(--text-secondary); white-space: nowrap; }
+.call-event-timeline .event-row { grid-template-columns: 25px minmax(0, 1fr) auto; }
+.call-event-timeline .event-row small { margin-top: 2px; color: var(--text-secondary); line-height: 1.5; }
+.call-event-timeline .event-row__timing { gap: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.call-event-timeline .event-row__timing time { color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
+.call-event-timeline .event-row__timing small { font-size: 10px; }
+.call-event-scroll { height: 220px; overflow: auto; scrollbar-gutter: stable; overflow-anchor: none; }
+.call-event-scroll:focus-visible { outline-offset: 2px; }
+.live-call-speech { margin: var(--space-4) var(--space-5); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--soft); }
+.live-call-speech > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.live-call-speech strong, .live-call-speech summary { font-size: 11px; font-weight: 600; }
+.live-call-speech time { color: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.live-call-speech p { max-height: 100px; overflow: auto; margin: var(--space-2) 0 0; font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
+.live-call-speech details { margin-top: var(--space-3); }
+.live-call-speech summary { cursor: pointer; color: var(--teal-dark); }
+.live-call-speech details p { padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.live-call-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--line); }
+.live-call-footer > span { color: var(--text-secondary); font-size: 10px; }
+.live-call-footer .stop-button { display: flex; align-items: center; gap: var(--space-2); min-height: 34px; padding: var(--space-2) var(--space-3); font-size: 12px; }
+.live-call-card > .form-error { margin: var(--space-4) var(--space-5); }
+@container (max-width: 500px) {
+  .live-capacity { padding: var(--space-4); gap: var(--space-4); }
+  .live-capacity-message { order: 3; flex-basis: 100%; }
+  .live-capacity-slots { margin-left: auto; gap: var(--space-1); }
+  .live-capacity-slots span { width: 14px; height: 26px; }
+}
 .operator-view > * { max-width: 1440px; margin-left: auto; margin-right: auto; }
 .operator-page-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-8); }
 .operator-page-header h1 { margin: 0 0 var(--space-2); font-size: 26px; line-height: 1.25; letter-spacing: -.6px; font-weight: 650; }

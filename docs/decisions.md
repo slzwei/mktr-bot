@@ -145,3 +145,9 @@ Channel inventory and variable inspection use the [FreeSWITCH API command interf
 
 - B6: Run container HTTP probes inside the disposable internal network because Docker intentionally suppresses host publication on that network; this preserves network isolation while testing the images through their real HTTP interfaces.
 - A4: Rely on the pinned FreeSWITCH core's built-in PCMA/G.711 registration because that core is compiled and preloaded before the overlay module list; a separate codec module is unnecessary, while actual negotiation still requires the operator's controlled call.
+
+- Live calls: Use one existing per-call SSE endpoint for each running roster entry and share the timeline/reconnect implementation with CallConsole; the shell's two-second bootstrap refresh remains the only roster polling loop, and event updates do not trigger extra bootstrap reads.
+- Live calls: Keep observed cards in arrival order and retain finished outcomes until explicit dismissal or navigation, because completion must not move a control out from under the operator; streams still close immediately, and the view discloses any gap between the 25-call roster and authoritative trunk capacity.
+- Live calls: Resolve names through existing contact/campaign lookups only when identities change, and resolve node labels only against a matching published workspace version; missing versions retain their node IDs instead of borrowing labels from a newer or edited graph.
+- Live calls: Show captured caller speech below the visible technical timeline, because clip event details are playback metadata rather than an agent-audio transcript; no speech is logged or stored in browser persistence.
+- Live calls: Let operators pause timers and logs, default that pause for reduced motion, and keep status/end controls and final outcomes current; live logs and timers use no automatic screen-reader announcements.

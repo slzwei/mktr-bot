@@ -9,6 +9,7 @@ import {
   GitBranch,
   LoaderCircle,
   Menu,
+  MonitorDot,
   PhoneCall,
   Play,
   Plus,
@@ -19,6 +20,9 @@ import {
   Trash2,
   Upload
 } from "lucide-react";
+import { LiveCallsView } from "./components/LiveCallsView";
+import { LoadError } from "./components/OperatorUI";
+import { latestCallSnapshot } from "./lib/call-snapshot";
 import { CallConsole } from "./components/CallConsole";
 import { ClipLibrary } from "./components/ClipLibrary";
 import { FlowCanvas } from "./components/FlowCanvas";
@@ -32,11 +36,12 @@ import { api, ApiError, type Operator } from "./lib/api";
 import type { BootstrapData, CallSession, CallSummary, Clip, FlowDefinition } from "./lib/domain";
 import { isCallInProgress } from "./lib/operator-display";
 
-type View = "flows" | "clips" | "calls" | "permissions" | "trunk" | "campaigns" | "events" | "settings" | "help";
+type View = "live" | "flows" | "clips" | "calls" | "permissions" | "trunk" | "campaigns" | "events" | "settings" | "help";
 
 const navigation: { id: View; label: string; icon: typeof GitBranch }[] = [
   { id: "flows", label: "Flows", icon: GitBranch },
   { id: "clips", label: "Audio clips", icon: AudioLines },
+  { id: "live", label: "Live calls", icon: MonitorDot },
   { id: "calls", label: "Call history", icon: FileClock },
   { id: "campaigns", label: "Campaigns", icon: PhoneCall },
   { id: "permissions", label: "Contact permissions", icon: ShieldCheck },
@@ -56,17 +61,26 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string }>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const loaded = Boolean(data);
 
   const refreshOperations = useCallback(async () => {
     const bootstrap = await api.bootstrap();
     // Refresh operational state without replacing unsaved editor/clip changes.
-    setData((current) => current ? { ...current, calls: bootstrap.calls, trunk: bootstrap.trunk } : current);
-    setActiveCall((current) => current ? bootstrap.calls.find((call) => call.id === current.id) ?? current : current);
+    setData((current) => {
+      if (!current) return current;
+      const previous = new Map(current.calls.map((call) => [call.id, call]));
+      const calls = bootstrap.calls.map((call) => latestCallSnapshot(previous.get(call.id), call));
+      const newerCompletions = bootstrap.calls.filter((call, index) => isCallInProgress(call.status) && !isCallInProgress(calls[index].status)).length;
+      return { ...current, calls, trunk: { ...bootstrap.trunk, activeCalls: Math.max(0, bootstrap.trunk.activeCalls - newerCompletions) } };
+    });
+    setActiveCall((current) => current ? latestCallSnapshot(current, bootstrap.calls.find((call) => call.id === current.id) ?? current) : current);
     setRefreshFailed(false);
   }, []);
 
-  useEffect(() => {
-    api.bootstrap()
+  const loadWorkspace = useCallback(() => {
+    setLoadError("");
+    return api.bootstrap()
       .then((bootstrap) => {
         setData(bootstrap);
         const first = bootstrap.flows[0];
@@ -75,10 +89,13 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
           setWorkingFlow(first);
         }
       })
-      .catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not load the application." }));
+      .catch((error) => setLoadError(error instanceof Error ? error.message : "Could not load the application."));
   }, []);
 
+  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+
   useEffect(() => {
+    if (!loaded) return;
     let stopped = false;
     let pending = false;
     const refresh = async () => {
@@ -92,7 +109,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
     const focused = () => { void refresh(); };
     window.addEventListener("focus", focused);
     return () => { stopped = true; clearInterval(timer); window.removeEventListener("focus", focused); };
-  }, [refreshOperations]);
+  }, [refreshOperations, loaded]);
 
   useEffect(() => {
     if (!notice) return;
@@ -172,17 +189,22 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
     } finally { setSaving(false); }
   };
 
-  const onCallUpdate = useCallback((call: CallSession) => {
-    setActiveCall(call);
+  const onLiveCallUpdate = useCallback((call: CallSession) => {
+    setActiveCall((current) => current?.id === call.id ? latestCallSnapshot(current, call) : current);
     setData((current) => {
       if (!current) return current;
-      const exists = current.calls.some((candidate) => candidate.id === call.id);
-      const calls = exists ? current.calls.map((candidate) => candidate.id === call.id ? call : candidate) : [call, ...current.calls];
-      const activeCalls = calls.filter((candidate) => !["ended", "failed"].includes(candidate.status)).length;
-      return { ...current, calls, trunk: { ...current.trunk, activeCalls } };
+      const previous = current.calls.find((candidate) => candidate.id === call.id);
+      const snapshot = latestCallSnapshot(previous, call);
+      const calls = previous ? current.calls.map((candidate) => candidate.id === call.id ? snapshot : candidate) : [snapshot, ...current.calls];
+      const difference = Number(isCallInProgress(snapshot.status)) - Number(Boolean(previous && isCallInProgress(previous.status)));
+      return { ...current, calls, trunk: { ...current.trunk, activeCalls: Math.max(0, current.trunk.activeCalls + difference) } };
     });
-    void refreshOperations().catch(() => setRefreshFailed(true));
-  }, [refreshOperations]);
+  }, []);
+
+  const onCallUpdate = useCallback((call: CallSession) => {
+    setActiveCall((current) => latestCallSnapshot(current, call));
+    onLiveCallUpdate(call);
+  }, [onLiveCallUpdate]);
 
   const onClipCreated = (clip: Clip) => {
     setData((current) => current ? { ...current, clips: [clip, ...current.clips] } : current);
@@ -202,7 +224,8 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
   };
 
   if (!data) {
-    return <main className="loading-screen"><span className="brand-mark"><Bot size={22} /></span><LoaderCircle className="spin" size={22} /><strong>Loading voice control</strong></main>;
+    if (loadError) return <main className="loading-screen"><LoadError title="Could not load voice control" error={loadError} onRetry={() => { void loadWorkspace(); }} /></main>;
+    return <main className="loading-screen" role="status"><span className="brand-mark"><Bot size={22} /></span><LoaderCircle className="spin" size={22} /><strong>Loading voice control</strong></main>;
   }
 
   return (
@@ -226,7 +249,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
           <span className="nav-label">Workspace</span>
           {navigation.map((item) => {
             const Icon = item.icon;
-            return <button key={item.id} aria-current={view === item.id ? "page" : undefined} className={view === item.id ? "is-active" : ""} onClick={() => { setView(item.id); setSidebarOpen(false); }}><Icon size={17} /> {item.label}</button>;
+            return <button key={item.id} aria-current={view === item.id ? "page" : undefined} className={view === item.id ? "is-active" : ""} onClick={() => { setView(item.id); setSidebarOpen(false); if (item.id === "live") setCallOpen(false); }}><Icon size={17} /> {item.label}</button>;
           })}
           <span className="nav-label nav-label--lower">System</span>
           <button className={view === "events" ? "is-active" : ""} onClick={() => { setView("events"); setSidebarOpen(false); }}><Activity size={17} /> Event logs</button>
@@ -267,6 +290,7 @@ function Workspace({ operator, signOut }: { operator: Operator; signOut: () => P
 
         {view === "flows" && !workingFlow && <div className="empty-history empty-flows"><GitBranch size={28} /><strong>No flows yet</strong><span>Create a flow to start with a simple Start → End path.</span><button className="primary-button" onClick={createFlow} disabled={saving}><Plus size={15} /> New flow</button></div>}
 
+        {view === "live" && <LiveCallsView calls={calls} flows={data.flows} trunk={data.trunk} refreshFailed={refreshFailed} onUpdated={onLiveCallUpdate} onCampaigns={() => setView("campaigns")} onFlows={() => setView("flows")} />}
         {view === "clips" && <ClipLibrary clips={data.clips} onCreated={onClipCreated} onRemoved={onClipRemoved} />}
         {view === "trunk" && <TrunkPanel trunk={data.trunk} />}
         {view === "campaigns" && <CampaignsPanel flows={data.flows} canManageWebhooks={operator.role === "admin"} />}

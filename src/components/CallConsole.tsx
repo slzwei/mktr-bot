@@ -2,20 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   CircleStop,
-  Clock3,
   LoaderCircle,
-  Phone,
   PhoneCall,
   RadioTower,
   Route,
-  Sparkles,
-  Volume2,
   X
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
-import type { CallEvent, CallSession, CallSummary, CallerId, FlowDefinition, TrunkStatus } from "../lib/domain";
+import type { CallSession, CallSummary, CallerId, FlowDefinition, TrunkStatus } from "../lib/domain";
 import { formatPhoneNumber } from "../lib/domain";
-import { singaporeTime } from "../lib/operator-display";
+import { isCallInProgress } from "../lib/operator-display";
+import { useCallStream } from "../lib/use-call-stream";
+import { CallEventTimeline } from "./CallEventTimeline";
 import { CallReview } from "./CallReview";
 import { LoadError } from "./OperatorUI";
 
@@ -30,20 +28,6 @@ type Props = {
   onUpdated: (call: CallSession) => void;
 };
 
-const active = new Set(["queued", "dialing", "ringing", "answered", "playing", "listening", "classifying"]);
-
-const eventIcon = (type: CallEvent["type"]) => {
-  if (type === "clip_playing") return Volume2;
-  if (type === "classified") return Sparkles;
-  if (type === "branch_selected") return Route;
-  if (type === "dialing" || type === "ringing" || type === "answered") return Phone;
-  if (type === "listening" || type === "transcript_final") return RadioTower;
-  if (type === "ended") return CircleStop;
-  return Clock3;
-};
-
-const timestamp = singaporeTime;
-
 export function CallConsole({ open, flows, trunk, activeCall, historyCall, onClose, onStarted, onUpdated }: Props) {
   const publishedFlows = useMemo(() => flows.filter((flow) => flow.status === "published"), [flows]);
   const [destination, setDestination] = useState("+6591234567");
@@ -52,7 +36,6 @@ export function CallConsole({ open, flows, trunk, activeCall, historyCall, onClo
   const [scenario, setScenario] = useState<"interested" | "not_interested" | "callback" | "uncertain">("interested");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
-  const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof api.call>>>();
   const [detailFailure, setDetailFailure] = useState<{ id: string; error: string }>();
   const [detailLoading, setDetailLoading] = useState(false);
@@ -60,7 +43,7 @@ export function CallConsole({ open, flows, trunk, activeCall, historyCall, onClo
   const closeButton = useRef<HTMLButtonElement>(null);
   const selectedId = historyCall?.id ?? activeCall?.id;
   const currentCall = activeCall?.id === selectedId ? activeCall : detail?.id === selectedId ? detail : undefined;
-  const isActiveCall = Boolean(currentCall ? active.has(currentCall.status) : historyCall && active.has(historyCall.status));
+  const isActiveCall = Boolean(currentCall ? isCallInProgress(currentCall.status) : historyCall && isCallInProgress(historyCall.status));
   const reviewing = Boolean(historyCall || currentCall && !isActiveCall);
 
   useEffect(() => {
@@ -86,46 +69,7 @@ export function CallConsole({ open, flows, trunk, activeCall, historyCall, onClo
     if (!flowId && publishedFlows[0]) setFlowId(publishedFlows[0].id);
   }, [flowId, publishedFlows]);
 
-  useEffect(() => {
-    if (!currentCall || !isActiveCall) return;
-    const callId = currentCall.id;
-    let disposed = false;
-    let resyncing = false;
-    let events: EventSource | undefined;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const resync = async () => {
-      if (resyncing || disposed) return;
-      resyncing = true;
-      try {
-        const call = await api.getCall(callId);
-        if (!disposed) onUpdated(call);
-      } catch {
-        if (!disposed) setStreamState("reconnecting");
-      } finally { resyncing = false; }
-    };
-    const connect = () => {
-      if (disposed) return;
-      const stream = new EventSource(`/api/calls/${callId}/events`);
-      events = stream;
-      stream.onopen = () => { if (!disposed) { setStreamState("connected"); void resync(); } };
-      stream.onmessage = (event) => {
-        if (disposed) return;
-        try { onUpdated(JSON.parse(event.data) as CallSession); }
-        catch { setStreamState("reconnecting"); void resync(); }
-      };
-      stream.onerror = () => {
-        if (disposed) return;
-        setStreamState("reconnecting");
-        void resync();
-        // Native EventSource retries dropped sockets. HTTP failures can close it
-        // permanently, so recreate only that terminal transport state.
-        if (stream.readyState === EventSource.CLOSED) retry = setTimeout(connect, 1000);
-      };
-    };
-    setStreamState("connecting");
-    connect();
-    return () => { disposed = true; clearTimeout(retry); events?.close(); };
-  }, [currentCall?.id, isActiveCall, onUpdated]);
+  const streamState = useCallStream(selectedId, open && isActiveCall, onUpdated);
 
   const start = async () => {
     setError("");
@@ -154,14 +98,7 @@ export function CallConsole({ open, flows, trunk, activeCall, historyCall, onClo
   const isLive = isActiveCall;
   const detailError = detailFailure && detailFailure.id === selectedId ? detailFailure.error : "";
   const loadingReview = reviewing && (detailLoading || detail?.id !== selectedId) && !detailError;
-  const eventTimeline = currentCall && <div className="event-log">
-    <div className="event-log__title"><span>{isLive ? "Live event timeline" : "Event timeline"}</span><small>{currentCall.events.length} events · SGT</small></div>
-    {currentCall.events.slice().reverse().map((event) => {
-      const Icon = eventIcon(event.type);
-      return <div className="event-row" key={event.id}><span className={`event-row__icon event-row__icon--${event.type}`}><Icon size={14} /></span><div><strong>{event.title}</strong>{event.detail && <small>{event.detail}</small>}</div><time dateTime={event.timestamp}>{event.latencyMs !== undefined ? `${event.latencyMs}ms` : timestamp(event.timestamp)}</time></div>;
-    })}
-    {currentCall.events.length === 0 && <p className="secondary-text">No technical events recorded.</p>}
-  </div>;
+  const eventTimeline = currentCall && <CallEventTimeline events={currentCall.events} live={isLive} />;
 
   return (
     <aside className={`call-console${reviewing ? " call-console--history" : ""}`} aria-label={reviewing && !isLive ? "Call details" : "Test call console"} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>

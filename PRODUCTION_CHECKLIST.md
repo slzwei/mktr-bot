@@ -161,3 +161,10 @@ Evidence: Implementation and all 99 unit/24 Chromium tests pass; the 12 inbound/
 Why: Callees who ring back a caller-ID number reach nothing, and Singtel CPaaS inbound routing is unresolved.
 Done when: A FreeSWITCH dialplan answers inbound INVITEs for `+6562773211` to `+6562773219`, plays a configurable clip, optionally records a message, and logs an `inbound_callback` call. Singtel CPaaS inbound routing to the gateway is confirmed, or documented as blocked with the support ticket reference.
 Verify: A `fs_cli` loopback originate exercises the inbound dialplan. The Singtel ticket or confirmation is linked in Evidence.
+
+### C6. Concurrent live call operator view
+Status: doing
+Evidence: Live calls UI, shared per-call SSE/timeline and seven Playwright scenarios implemented; local lint/build pass. Runtime verification and the three-call screenshot are blocked by sandbox socket denials (`listen EPERM`, `connect EPERM`); see `docs/live-calls-review.md`.
+Why: The single-call drawer leaves other concurrent calls invisible to the operator.
+Done when: An operator can watch every running session in the existing recent-call roster with independent live technical timelines, identity, flow/node, elapsed time, recording state and individual stop controls; capacity, finished outcomes, failure reasons, reconnects, missing versions and accessible idle/loading states are explicit without changing telephony limits or the API.
+Verify: `npm run lint`, `npm test`, `npm run test:media`, `npm run build` and `npx playwright test` pass in simulator mode, including independent updates with roster reads frozen, stream cleanup/recovery, full capacity and reduced motion; inspect and retain the three-call screenshot.

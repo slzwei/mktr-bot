@@ -19,9 +19,9 @@ export async function operatorFixture() {
   await authStore.saveUser({ id: randomUUID(), email, passwordHash: await hashPassword(password), role: "operator" });
   const adapter = new SimulatedTelephonyAdapter(), classifier = new RuleClassifier();
   const calls = new CallOrchestrator(store, adapter, classifier);
-  const { app, closeSseStreams } = createApp({ store, authStore, adapter, classifier, calls, dnc: { enabled: false }, webOrigin: origin, logger: pino({ level: "silent" }) });
+  const { app, closeSseStreams } = createApp({ store, authStore, adapter, classifier, calls, dnc: { enabled: false, gatewayUrl: "", gatewaySecret: "" }, webOrigin: origin, logger: pino({ level: "silent" }) });
   server.on("request", app);
-  return { origin, store, email, password, close: async () => {
+  return { origin, store, calls, closeStreams: closeSseStreams, email, password, close: async () => {
     closeSseStreams(); await calls.shutdown(); server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   } };
