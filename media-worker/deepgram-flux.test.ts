@@ -129,3 +129,25 @@ test("a caller abort cancels Flux while its handshake is still pending", async (
   control.abort();
   await assert.rejects(opening, /cancelled|Could not connect/);
 });
+
+test("a turn late in a long call still reports latency, checked against the provider's own audio window", async (t) => {
+  const fake = await upstream(t);
+  const utterances: Utterance[] = [];
+  // A live call streams for seconds before the caller answers. A locally tallied byte count drifts
+  // from the provider's timeline over that distance; the provider's own window cannot.
+  const stream = await new DeepgramFluxSpeechToText({ apiKey: "fixture-key", endpoint: fake.endpoint, now: () => 12_500 }).open({
+    onUtterance: (value) => utterances.push(value), onError: (error) => assert.fail(error.message)
+  });
+  t.after(() => stream.close());
+  stream.write(Buffer.alloc(320), 1000);
+  await waitFor(() => fake.frames() === 1);
+  fake.peer().send(JSON.stringify({
+    type: "TurnInfo", event: "EndOfTurn", turn_index: 3, audio_window_start: 9, audio_window_end: 11.5,
+    transcript: "Yeah.", words: [{ word: "Yeah.", confidence: 1, start: 11, end: 11.2 }],
+    end_of_turn_confidence: 0.78, trigger: "model", sequence_id: 40
+  }));
+  await waitFor(() => utterances.length === 1);
+  // Timeline starts at 980 ms, the last word ends 11.2 s in, and the clock reads 12 500 ms.
+  assert.equal(utterances[0].latencyMs, 320);
+  assert.equal(utterances[0].finalizedBy, "turn");
+});

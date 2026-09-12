@@ -117,9 +117,13 @@ export class DeepgramFluxSpeechToText implements SpeechToText {
         let lastWordEnd: number | undefined;
         for (const word of message.words ?? []) if (word.end !== undefined) lastWordEnd = Math.max(lastWordEnd ?? 0, word.end);
         lastWordEnd ??= message.audio_window_end;
-        // Word times run along the submitted audio timeline, which spans the whole call, so the
-        // anchor is the first PCM arrival exactly as on v1. Unknown timing produces no sample.
-        const estimated = audioOriginAt !== undefined && lastWordEnd !== undefined && lastWordEnd <= audioSeconds + 0.1
+        // Word times run along the submitted audio timeline, anchored at the first PCM arrival as on
+        // v1. Check them against Flux's own `audio_window_end` rather than a local byte count: both
+        // it and the word times come from the provider's timeline, so they cannot disagree, whereas
+        // a locally tallied total drifts from it over a call-long stream and silently voids the
+        // estimate. The byte count remains the fallback when the provider omits the window.
+        const consumedSeconds = message.audio_window_end ?? audioSeconds;
+        const estimated = audioOriginAt !== undefined && lastWordEnd !== undefined && lastWordEnd <= consumedSeconds + 0.1
           ? now() - (audioOriginAt + lastWordEnd * 1000) : undefined;
         const latencyMs = estimated !== undefined && estimated >= 0 && estimated <= 60_000 ? Math.round(estimated) : undefined;
         const finalizedBy: UtteranceEnding = message.trigger === "timeout" ? "timeout" : "turn";
