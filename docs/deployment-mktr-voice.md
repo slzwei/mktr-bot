@@ -63,7 +63,7 @@ Session recording is on (`MKTR_RECORDING_ENABLED=true`). Every answered outbound
 
 A listen node's no-speech timeout no longer fires on a caller who is mid-sentence: the worker reports recognizable words and the API replaces the timeout with a single bounded wait for the transcript. Live call `5ed7136f` lost a real answer to this before the fix.
 
-Known tuning point: endpointing, the silence that ends the caller's reply, is set per listen node in the flow editor since Latency stage 1 (default 300 ms, range 100–1000 ms); the first call ran at the old fixed 750 ms. A node whose value differs from the first listen node's makes the worker reconnect for that turn. Lengthen it on nodes where callers get cut off and keep it short on yes/no nodes. Deepgram traffic goes to the Sydney origin unless `MKTR_DEEPGRAM_BASE_URL` in the env file names another bare https origin; recreate `media-worker` after changing it.
+Known tuning point: endpointing, the silence that ends the caller's reply, is set per listen node in the flow editor since Latency stage 1 (default 300 ms, range 100–1000 ms); the first call ran at the old fixed 750 ms. A node whose value differs from the first listen node's makes the worker reconnect for that turn. Lengthen it on nodes where callers get cut off and keep it short on yes/no nodes. Deepgram traffic goes to `https://api.deepgram.com`, set explicitly in the env file as `MKTR_DEEPGRAM_BASE_URL`, because a steady-state replay put it about 60 ms ahead of the Sydney origin on an already-established connection. The repo default remains Sydney. Any bare https origin works; recreate `media-worker` after changing it, and watch the turn times, since the global endpoint routes to whichever region has capacity.
 
 ## Measuring turn latency
 
