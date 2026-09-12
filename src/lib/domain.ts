@@ -43,6 +43,12 @@ export type FlowNode = {
  *  The ceiling matches Deepgram's 1000 ms UtteranceEnd fallback, which must not run ahead of the endpoint. */
 export const LISTEN_ENDPOINTING = { defaultMs: 300, minMs: 100, maxMs: 1000 } as const;
 
+/** How a reply was finalized. `endpoint` is the configured silence, `utterance_end` Deepgram's fixed
+ *  1000 ms fallback, `turn` a conversational model judging the turn complete, and `timeout` that model
+ *  giving up on a turn that never reached its confidence threshold. */
+export const UTTERANCE_ENDINGS = ["endpoint", "utterance_end", "turn", "timeout"] as const;
+export type UtteranceEnding = typeof UTTERANCE_ENDINGS[number];
+
 /** Once the caller is heard saying words, silence is no longer the right thing to time, so the
  *  listen node's no-speech timeout is replaced by this one-shot wait for the finished transcript.
  *  One shot, so a noisy line cannot hold a window open indefinitely. */

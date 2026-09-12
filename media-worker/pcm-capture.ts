@@ -1,7 +1,8 @@
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Utterance, UtteranceEnding } from "./speech-to-text.js";
+import type { UtteranceEnding } from "../src/lib/domain.js";
+import type { Utterance } from "./speech-to-text.js";
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 /** A call's worth of replies with room to spare; a longer run stops appending rather than growing. */

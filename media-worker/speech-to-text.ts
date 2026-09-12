@@ -1,6 +1,5 @@
-/** `endpoint` means the configured endpointing silence ended the reply; `utterance_end` means
- *  Deepgram's fixed 1000 ms UtteranceEnd fallback did, so endpointing was not the binding limit. */
-export type UtteranceEnding = "endpoint" | "utterance_end";
+export type { UtteranceEnding } from "../src/lib/domain.js";
+import type { UtteranceEnding } from "../src/lib/domain.js";
 export type Utterance = { transcript: string; latencyMs?: number; finalizedBy?: UtteranceEnding };
 export type SpeechCallbacks = {
   onUtterance: (utterance: Utterance) => void;

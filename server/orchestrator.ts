@@ -14,7 +14,7 @@ import type {
   FlowNode,
   TestCallInput
 } from "../src/lib/domain.js";
-import { ACTIVE_CALL_STATUSES, LISTEN_SPEAKING_GRACE_MS, SCENARIOS } from "../src/lib/domain.js";
+import { ACTIVE_CALL_STATUSES, LISTEN_SPEAKING_GRACE_MS, SCENARIOS, type UtteranceEnding } from "../src/lib/domain.js";
 import { createTranscriptClassifier, type TranscriptClassifier } from "./classifier.js";
 import { config } from "./config.js";
 import { flowListens, listenEndpointingMs } from "./listen-window.js";
@@ -26,7 +26,7 @@ import { assertAllowedCallerId, type TelephonyAdapter, type TelephonyEvent } fro
 const activeStatuses = ACTIVE_CALL_STATUSES;
 
 type PlaybackDelay = (clip: Clip, mode: TelephonyAdapter["mode"]) => number;
-export type TranscriptReceipt = { windowId: string; utteranceId: string; sttLatencyMs?: number; finalizedBy?: "endpoint" | "utterance_end" };
+export type TranscriptReceipt = { windowId: string; utteranceId: string; sttLatencyMs?: number; finalizedBy?: UtteranceEnding };
 export class ListenWindowClosedError extends Error { readonly status = 409; }
 
 const sttProvider = () => process.env.MKTR_STT_PROVIDER || "deepgram";

@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { z } from "zod";
-import { ACTIVE_CALL_STATUSES, LISTEN_ENDPOINTING, type CallStatus } from "../src/lib/domain.js";
+import { ACTIVE_CALL_STATUSES, LISTEN_ENDPOINTING, UTTERANCE_ENDINGS, type CallStatus } from "../src/lib/domain.js";
 import type { CaptureStream, PcmCapture } from "./pcm-capture.js";
 import type { ListenSettings, SpeechStream, SpeechToText, Utterance } from "./speech-to-text.js";
 
@@ -14,7 +14,7 @@ const audioPath = new RegExp(`^/audio/(${uuid})$`, "i");
 const windowPath = new RegExp(`^/calls/(${uuid})/window/(${uuid})$`, "i");
 const endpointingMs = z.number().int().min(LISTEN_ENDPOINTING.minMs).max(LISTEN_ENDPOINTING.maxMs);
 const callSchema = z.object({ status: z.string(), listenWindowId: z.string().optional(), endpointingMs: endpointingMs.optional() });
-const utteranceSchema = z.object({ transcript: z.string().trim().min(1).max(2000), latencyMs: z.number().finite().min(0).max(60_000).optional(), finalizedBy: z.enum(["endpoint", "utterance_end"]).optional() });
+const utteranceSchema = z.object({ transcript: z.string().trim().min(1).max(2000), latencyMs: z.number().finite().min(0).max(60_000).optional(), finalizedBy: z.enum(UTTERANCE_ENDINGS).optional() });
 /** Five concurrent calls matches the trunk ceiling; reservations outlive their audio only until receipts settle. */
 const MAX_CALLS = 5;
 const MAX_RESERVATIONS = 25;

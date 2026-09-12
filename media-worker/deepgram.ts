@@ -43,7 +43,7 @@ const secureScheme: Record<string, "wss:" | "ws:" | undefined> = { "https:": "ws
  *  see the Latency 1 entries in docs/decisions.md, including the data-residency question. Cleartext is
  *  refused except on loopback so the API key never leaves the host unencrypted, and a value that is not a
  *  bare origin fails at startup. */
-export function deepgramListenUrl(baseUrl: string = deepgramDefaults.baseUrl): string {
+export function deepgramListenUrl(baseUrl: string = deepgramDefaults.baseUrl, pathname = "/v1/listen"): string {
   let url: URL;
   try { url = new URL(baseUrl); } catch (error) { throw new Error(`Deepgram base URL must be an absolute origin such as ${deepgramDefaults.baseUrl}.`, { cause: error }); }
   const protocol = secureScheme[url.protocol];
@@ -51,7 +51,7 @@ export function deepgramListenUrl(baseUrl: string = deepgramDefaults.baseUrl): s
   if (protocol === "ws:" && !loopbackHosts.has(url.hostname)) throw new Error("Deepgram base URL may use cleartext http or ws only for loopback fakes.");
   if (url.username || url.password || url.search || url.hash || url.pathname.replace(/\/+$/, "") !== "") throw new Error(`Deepgram base URL must be a bare origin without a path, credentials or query, such as ${deepgramDefaults.baseUrl}.`);
   url.protocol = protocol;
-  url.pathname = "/v1/listen";
+  url.pathname = pathname;
   return url.toString();
 }
 
