@@ -22,7 +22,7 @@ export function CallReview({ call, transcript, summary, flows }: { call: CallSes
     <div className="call-review-recording">
       {recording ? <>
         <audio className="call-recording-audio" aria-label={`Recording of the call to ${summary?.contactName || call.destination}`} controls preload="metadata" src={`/api/calls/${encodeURIComponent(call.id)}/recording`} onPlay={(event) => { document.querySelectorAll("audio").forEach((audio) => { if (audio !== event.currentTarget) audio.pause(); }); }} />
-        <a className="secondary-button" href={`/api/calls/${encodeURIComponent(call.id)}/recording`} download={`${call.id}.wav`}><Download size={15} /> Download</a>
+        <a className="secondary-button" aria-label="Download recording" href={`/api/calls/${encodeURIComponent(call.id)}/recording`} download={`${call.id}.wav`}><Download size={15} /> Download</a>
       </> : <span>{["ended", "failed"].includes(call.status) ? "No recording available" : "Recording becomes available when the call ends"}</span>}
       {recording && call.recordingExpiresAt && <small>Available until {singaporeDateTime(call.recordingExpiresAt)} SGT</small>}
     </div>

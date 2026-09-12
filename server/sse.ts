@@ -16,14 +16,17 @@ export function openCallEventStream(
   response.write("retry: 1000\n\n");
   let closed = false;
   const send = (call: CallSession) => {
-    if (closed) return;
-    if (response.writableLength > 1024 * 1024) { response.end(); return; }
+    // `closed` only flips on the response's own close event, which lands a tick or more after
+    // anything that ends the stream directly: the backpressure guard below, and shutdown. A
+    // publish arriving in that window used to throw "write after end" out of the orchestrator.
+    if (closed || response.writableEnded || response.destroyed) return;
+    if (response.writableLength > 1024 * 1024) { close(); response.end(); return; }
     const id = (call.events.at(-1)?.id ?? `snapshot:${call.id}`).replace(/[\r\n]/g, "");
     response.write(`id: ${id}\ndata: ${JSON.stringify(call)}\n\n`);
   };
   send(initial);
   const unsubscribe = subscribe(send);
-  const heartbeat = setInterval(() => { if (!closed) response.write(": ping\n\n"); }, options.heartbeatMs ?? 15_000);
+  const heartbeat = setInterval(() => { if (!closed && !response.writableEnded && !response.destroyed) response.write(": ping\n\n"); }, options.heartbeatMs ?? 15_000);
   heartbeat.unref();
   const close = () => {
     if (closed) return;

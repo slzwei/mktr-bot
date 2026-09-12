@@ -86,7 +86,7 @@ test("three simulator calls stream independently with roster and detail reads fr
     await expect(tile.locator(".live-call-status")).toHaveText("Listening");
     await expect(tile.locator(".event-log time").last()).toHaveText(new Date(call.events[0].timestamp).toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore", hour: "2-digit", minute: "2-digit", second: "2-digit" }));
   }
-  const tick = await card(page, calls[0]).locator(".live-call-duration").innerText();
+  const tick = await card(page, calls[0]).locator(".live-call-duration").textContent();
   await expect(card(page, calls[0]).locator(".live-call-duration")).not.toHaveText(tick);
   await page.screenshot({ path: testInfo.outputPath("live-calls-three.png"), fullPage: true });
   await testInfo.attach("Three concurrent simulator calls", { path: testInfo.outputPath("live-calls-three.png"), contentType: "image/png" });
@@ -108,7 +108,7 @@ test("three simulator calls stream independently with roster and detail reads fr
   await focusRefresh(page);
   await expect(page.getByRole("region", { name: "Trunk capacity" })).toContainText("0 / 5");
   expect(await page.getByTestId("live-call-card").evaluateAll((tiles) => tiles.map((tile) => tile.getAttribute("data-call-id")))).toEqual(positions);
-  const frozen = await card(page, calls[0]).locator(".live-call-duration").innerText();
+  const frozen = await card(page, calls[0]).locator(".live-call-duration").textContent();
   await page.waitForTimeout(1100);
   await expect(card(page, calls[0]).locator(".live-call-duration")).toHaveText(frozen);
   await card(page, calls[0]).getByRole("button", { name: "Dismiss", exact: true }).focus();
@@ -226,8 +226,8 @@ test("reduced motion pauses timers and logs, keeps controls live, and resumes wi
   const call = await start(page, operator.origin, flow.id, 0);
   await focusRefresh(page);
   await expect(card(page, call)).toBeVisible();
-  const log = await card(page, call).locator(".event-log").innerText();
-  const timer = await card(page, call).locator(".live-call-duration").innerText();
+  const log = await card(page, call).locator(".event-log").textContent();
+  const timer = await card(page, call).locator(".live-call-duration").textContent();
   await expect(card(page, call).locator(".live-call-facts")).toContainText("Awaiting follow-up");
   await expect(card(page, call).locator(".event-log")).toHaveText(log);
   await expect(card(page, call).locator(".live-call-duration")).toHaveText(timer);

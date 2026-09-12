@@ -62,7 +62,7 @@ export function createApp(dependencies: AppDependencies) {
   metrics.setActiveCallSource(() => calls.activeCallCount());
   const webOrigin = dependencies.webOrigin ?? config.webOrigin;
   const app = express();
-  const streams = new Set<Response>();
+  const streams = new Set<() => void>();
   const auth = createAuth(authStore);
   const campaigns = dependencies.campaignDialer ?? new CampaignDialer(store, calls, { logger });
   const outcomeWebhook = dependencies.outcomeWebhook ?? config.outcomeWebhook;
@@ -362,8 +362,11 @@ export function createApp(dependencies: AppDependencies) {
   app.get("/api/calls/:id/events", async (request, response) => {
     const call = calls.get(request.params.id);
     if (!call) return response.status(404).json({ error: "Call not found." });
-    streams.add(response);
-    openCallEventStream(response, call, (listener) => calls.subscribe(request.params.id, listener), { onClose: () => streams.delete(response) });
+    // Keep the stream's own close function: ending the response alone leaves its heartbeat and
+    // orchestrator subscription running until the socket's close event catches up.
+    const close = openCallEventStream(response, call, (listener) => calls.subscribe(request.params.id, listener), { onClose: () => streams.delete(closer) });
+    const closer = () => { close(); response.end(); };
+    streams.add(closer);
   });
   app.use("/api", (_request, response) => response.status(404).json({ error: "API route not found." }));
   const webRoot = path.resolve(process.cwd(), "dist");
@@ -389,5 +392,5 @@ export function createApp(dependencies: AppDependencies) {
     logger.error({ err: error, requestId: response.locals.requestId, callId: response.locals.callId, method: request.method, path: request.path }, "Unhandled request failure");
     return response.status(500).json({ error: "Unexpected server error. Contact the administrator with the request ID.", requestId: response.locals.requestId });
   });
-  return { app, closeSseStreams() { for (const stream of streams) stream.end(); streams.clear(); } };
+  return { app, closeSseStreams() { for (const close of streams) close(); streams.clear(); } };
 }
