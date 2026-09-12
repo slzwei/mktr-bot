@@ -18,7 +18,7 @@ function measurements() {
   return { metrics: new VoiceMetrics(logger), logger, logs };
 }
 
-test("Singapore English rules classify all 89 transcript fixtures correctly", async () => {
+test("Singapore English rules classify every transcript fixture correctly", async () => {
   const fixtures = z.array(z.object({ transcript: z.string(), intent: z.enum(["interested", "callback", "not_interested", "unknown"]) })).parse(JSON.parse(await readFile(new URL("./fixtures/classifier-transcripts.json", import.meta.url), "utf8")));
   assert.ok(fixtures.length >= 60);
   assert.equal(new Set(fixtures.map((fixture) => fixture.transcript)).size, fixtures.length);

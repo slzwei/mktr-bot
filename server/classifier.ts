@@ -38,7 +38,9 @@ export class RuleClassifier implements TranscriptClassifier {
     else if (callback.test(normalised)) intent = "callback";
     else if (uncertain.test(normalised)) intent = "unknown";
     else if (/\b(?:no|nope|nah|stop|don't|do not|dont|cannot|can't|can not)\b/.test(normalised)) intent = "not_interested";
-    else if (/\b(?:yes|interested|tell me more|sounds good|sure|okay|ok|go ahead|carry on|can lah|can lor|can listen|can talk|can proceed)\b|^(?:can)[.!?\s]*$/.test(normalised)) intent = "interested";
+    // Informal agreement is how people actually answer a phone. Every refusal, callback and
+    // uncertainty test above runs first, so "yeah but not interested" still refuses.
+    else if (/\b(?:yes|yeah|yah|ya|yep|yup|interested|tell me more|sounds good|sounds great|sounds interesting|sure|okay|ok|alright|all right|correct|of course|why not|go ahead|go on|carry on|can lah|can lor|can can|can listen|can talk|can proceed)\b|^(?:can)[.!?\s]*$/.test(normalised)) intent = "interested";
     const classification = {
       interested: { sentiment: "positive", confidence: 0.88 },
       callback: { sentiment: "neutral", confidence: 0.86 },

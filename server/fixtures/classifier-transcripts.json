@@ -354,5 +354,89 @@
   {
     "transcript": "I'm not interested and I can't hear you",
     "intent": "not_interested"
+  },
+  {
+    "transcript": "Yeah.",
+    "intent": "interested"
+  },
+  {
+    "transcript": "yeah",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Yeah sure",
+    "intent": "interested"
+  },
+  {
+    "transcript": "yah",
+    "intent": "interested"
+  },
+  {
+    "transcript": "ya",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Ya can",
+    "intent": "interested"
+  },
+  {
+    "transcript": "yep",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Yup",
+    "intent": "interested"
+  },
+  {
+    "transcript": "alright",
+    "intent": "interested"
+  },
+  {
+    "transcript": "All right, go on",
+    "intent": "interested"
+  },
+  {
+    "transcript": "correct",
+    "intent": "interested"
+  },
+  {
+    "transcript": "of course",
+    "intent": "interested"
+  },
+  {
+    "transcript": "why not",
+    "intent": "interested"
+  },
+  {
+    "transcript": "can can",
+    "intent": "interested"
+  },
+  {
+    "transcript": "Sounds interesting",
+    "intent": "interested"
+  },
+  {
+    "transcript": "yeah but not interested",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "Yeah, no need",
+    "intent": "not_interested"
+  },
+  {
+    "transcript": "yeah call me back later",
+    "intent": "callback"
+  },
+  {
+    "transcript": "Yah, I'm not free now",
+    "intent": "callback"
+  },
+  {
+    "transcript": "yeah not sure",
+    "intent": "unknown"
+  },
+  {
+    "transcript": "Ya, who is this?",
+    "intent": "unknown"
   }
 ]
